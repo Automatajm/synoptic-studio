@@ -47,12 +47,18 @@ const PALETTE = [
     "#e879f9","#fbbf24","#ffffff","#94a3b8",
 ];
 
-// ── Theme — dual mode (dark default, adapts to system) ────────────────────────
-function isDark(): boolean {
-    return window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
+// ── Theme — adapts to Power BI report theme via host color palette ────────────
+// PBI calls update() whenever the report theme changes, so we refresh CLR there.
+function isDarkFromBg(bgHex: string): boolean {
+    // Compute relative luminance; treat anything below 0.5 as dark
+    if (!bgHex || bgHex.length < 7) return true; // default to dark
+    const r = parseInt(bgHex.slice(1,3),16) / 255;
+    const g = parseInt(bgHex.slice(3,5),16) / 255;
+    const b = parseInt(bgHex.slice(5,7),16) / 255;
+    const lum = 0.2126*r + 0.7152*g + 0.0722*b;
+    return lum < 0.5;
 }
-function getTheme() {
-    const dark = isDark();
+function getTheme(dark: boolean) {
     return {
         bg:      dark ? "#07090a" : "#f4f6f8",
         surface: dark ? "#0c1014" : "#ffffff",
@@ -69,7 +75,8 @@ function getTheme() {
         glo:     dark ? "#00301e" : "#d4f0e4",
     };
 }
-let CLR = getTheme();
+// Initialize with dark as sensible default until update() gets the real PBI theme
+let CLR = getTheme(true);
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 let _uid = 0;
@@ -474,7 +481,10 @@ export class Visual implements IVisual {
     private panX     = 0;
     private panY     = 0;
     private zoomLevel= 1.0;
-        private rotation = 180; // 180 = correct orientation for this farm
+    // Rotation is stored in INTERNAL degrees (math space).
+    // The UI labels use DISPLAY degrees where 0° = natural orientation of this layout.
+    // Conversion: internal = (display + 180) % 360   |   display = (internal + 180) % 360
+    private rotation = 180; // internal 180 = display 0° (natural orientation)
     private isPanning= false;
     private panStartX= 0;
     private panStartY= 0;
@@ -483,6 +493,7 @@ export class Visual implements IVisual {
     private transformGroup: SVGElement | null = null;
     private textLayer:      SVGElement | null = null;
     private labelsGroup:    SVGElement | null = null;
+    private fillLayer:      SVGElement | null = null;
     private fieldNames:  Record<string,string> = {};
     private fallback     = "#52626a";
     private showLabel    = true;
@@ -496,8 +507,8 @@ export class Visual implements IVisual {
         this.selMgr = this.host.createSelectionManager();
         this.fmtSvc = new FormattingSettingsService();
 
-        // Refresh theme each render (handles system dark/light switch)
-        CLR = getTheme();
+        // Detect PBI report theme from host color palette
+        CLR = getTheme(this.isHostDark());
         this.target.style.cssText=
             `position:relative;width:100%;height:100%;overflow:hidden;`+
             `background:${CLR.bg};font-family:'Segoe UI',sans-serif;`;
@@ -556,11 +567,15 @@ export class Visual implements IVisual {
         this.wrapper.appendChild(this.svg);
 
         // Create persistent layers immediately
+        // Order: bg → shapes (rotates) → fill (upright) → labels (upright) → compass
         const initBg = svgEl("rect",{"id":"bg-rect",width:"100%",height:"100%",fill:CLR.bg});
         this.svg.appendChild(initBg);
         const initTg = svgEl("g",{"id":"transform-group"});
         this.svg.appendChild(initTg);
         this.transformGroup = initTg;
+        const initFl = svgEl("g",{"id":"fill-layer"});
+        this.svg.appendChild(initFl);
+        this.fillLayer = initFl;
         const initTlg = svgEl("g",{"id":"text-layer"});
         this.svg.appendChild(initTlg);
         this.textLayer = initTlg;
@@ -594,7 +609,8 @@ export class Visual implements IVisual {
         rotLabel.textContent="Rotate:";
         ctrlWrap.appendChild(rotLabel);
 
-        [0,90,180,270].forEach(deg=>{
+        [0,90,180,270].forEach(displayDeg=>{
+            const internalDeg = (displayDeg + 180) % 360;
             const rb=mk("button",{
                 fontFamily:"'Segoe UI',sans-serif",fontSize:"9px",
                 padding:"2px 8px",background:CLR.card,
@@ -602,11 +618,11 @@ export class Visual implements IVisual {
                 borderRadius:"3px",cursor:"pointer",marginLeft:"2px",
                 fontWeight:"500",
             });
-            rb.textContent=`${deg}°`;
-            rb.id=`rot-btn-${deg}`;
+            rb.textContent=`${displayDeg}°`;
+            rb.id=`rot-btn-${internalDeg}`;
             rb.addEventListener("click",(e)=>{
                 e.stopPropagation();
-                this.rotation=deg;
+                this.rotation=internalDeg;
                 this.panX=0; this.panY=0; this.zoomLevel=1.0;
                 this.applyTransform();
                 this.drawCompassRotated();
@@ -650,7 +666,7 @@ export class Visual implements IVisual {
         zoomDisplay.textContent="100%";
         ctrlWrap.appendChild(zoomDisplay);
 
-        // Reset button
+        // Reset button — resets to 180° (the natural orientation for this layout)
         const resetBtn=mk("button",{fontFamily:"'Segoe UI',sans-serif",fontSize:"9px",
             padding:"2px 9px",background:CLR.card,
             border:`1px solid ${CLR.border}`,color:CLR.text,
@@ -658,7 +674,7 @@ export class Visual implements IVisual {
         resetBtn.textContent="↺ Reset";
         resetBtn.addEventListener("click",(e)=>{
             e.stopPropagation();
-            this.panX=0; this.panY=0; this.zoomLevel=1.0; this.rotation=0;
+            this.panX=0; this.panY=0; this.zoomLevel=1.0; this.rotation=180;
             this.applyTransform();
             this.drawCompassRotated();
         });
@@ -707,7 +723,7 @@ export class Visual implements IVisual {
     }
 
     public update(options: VisualUpdateOptions): void {
-        CLR = getTheme();
+        CLR = getTheme(this.isHostDark());
         this.target.style.background = CLR.bg;
         this.fmtSettings=this.fmtSvc.populateFormattingSettingsModel(
             VisualFormattingSettingsModel, options.dataViews[0]);
@@ -784,6 +800,15 @@ export class Visual implements IVisual {
         clearNode(tg);
         this.transformGroup = tg;
 
+        // Fill layer — clear contents, keep element (upright, gravity-aware)
+        let fl = this.svg.getElementById("fill-layer") as SVGElement;
+        if(!fl){
+            fl = svgEl("g",{"id":"fill-layer"});
+            this.svg.appendChild(fl);
+        }
+        clearNode(fl);
+        this.fillLayer = fl;
+
         // Text layer — clear contents, keep element
         let tlg = this.svg.getElementById("text-layer") as SVGElement;
         if(!tlg){
@@ -840,6 +865,7 @@ export class Visual implements IVisual {
             const g=svgEl("g",{});
             g.setAttribute("style","cursor:pointer");
 
+            // Container rect (rotates with shapes)
             g.appendChild(svgEl("rect",{
                 x:String(cell.x),y:String(cell.y),
                 width:String(cell.w),height:String(cell.h),rx:"3",
@@ -848,37 +874,13 @@ export class Visual implements IVisual {
                 "stroke-width":isSel?"2":".8",
             }));
 
-            if(!dimmed&&obj.valorPrincipal!==undefined&&obj.valorPrincipal>0){
-                const pct = Math.min(obj.valorPrincipal,100)/100;
-                const fh  = Math.round((cell.h-2)*pct);
-                const fr  = svgEl("rect",{
-                    x:String(cell.x+1),
-                    y:String(cell.y+cell.h-1-fh),
-                    width:String(cell.w-2),
-                    height:String(fh),
-                    rx:"1",
-                    fill:hexToRgba(color,.35),
-                });
-                fr.setAttribute("pointer-events","none");
-                g.appendChild(fr);
-            }
-
-            if(!dimmed){
-                // Accent bar at BOTTOM to reinforce bottom-up fill direction
-                const ab=svgEl("rect",{
-                    x:String(cell.x+1),y:String(cell.y+cell.h-4),
-                    width:String(cell.w-2),height:"3",rx:"1",
-                    fill:hexToRgba(color,.9),
-                });
-                ab.setAttribute("pointer-events","none");
-                g.appendChild(ab);
-            }
-
-            // Store label data for labelsGroup rendering (upright, no rotation)
+            // Store fill + label metadata for upright rendering in fill-layer and labels-group
             if(!dimmed){
                 g.setAttribute("data-lbl", obj.label);
                 g.setAttribute("data-val", obj.valorPrincipal!==undefined
                     ? String(Math.round(obj.valorPrincipal)) : "");
+                g.setAttribute("data-pct", obj.valorPrincipal!==undefined
+                    ? String(Math.min(obj.valorPrincipal,100)/100) : "0");
                 g.setAttribute("data-cx",  String(cell.x+cell.w/2));
                 g.setAttribute("data-cy",  String(cell.y+cell.h/2));
                 g.setAttribute("data-cw",  String(cell.w));
@@ -935,73 +937,22 @@ export class Visual implements IVisual {
         this.drawCompassRotated();
     }
 
-    private drawBlockZones(W: number, H: number): void {
-        // Approximate block zones based on La Romana layout
-        const srcW = 940, srcH = 480;
-        const scale  = Math.min(W/srcW, H/srcH) * 0.96;
-        const offX   = (W - srcW*scale)/2;
-        const offY   = (H - srcH*scale)/2;
-        const sc = (x:number,y:number,w:number,h:number) => ({
-            x: x*scale+offX, y: y*scale+offY, w: w*scale, h: h*scale
-        });
-        const ZONES: {z:{x:number,y:number,w:number,h:number},color:string,label:string}[] = [
-            {z:sc(20,12,  11*24+6, 68+20), color:"#00e5a0", label:"BLQ A"},
-            {z:sc(78,90,  30*24+6, 68+20), color:"#38bdf8", label:"BLQ B"},
-            {z:sc(92,168, 30*24+6, 68+20), color:"#a78bfa", label:"BLQ C"},
-            {z:sc(20,262,  4*24+6, 68+20), color:"#f59e0b", label:"BLQ D"},
-            {z:sc(174,262,22*24+6, 68+20), color:"#f59e0b", label:"BLQ D"},
-            {z:sc(174,342,21*24+6, 68+20), color:"#fb923c", label:"BLQ E"},
-        ];
-        ZONES.forEach(({z,color,label}) => {
-            const bg = this.svgRect(z.x,z.y,z.w,z.h,5,
-                `${color}08`,`${color}18`,"0.8");
-            this.svg.appendChild(bg);
-            const t = this.svgText(z.x+3, z.y+9, label, 7, color, "IBM Plex Mono,monospace","600");
-            t.setAttribute("opacity","0.5");
-            this.svg.appendChild(t);
-        });
-        // MUROS area
-        const m = sc(126,265,46,68+20);
-        this.svg.appendChild(this.svgRect(m.x,m.y,m.w,m.h,3,"#0d0d0d","#1e1e1e","0.7"));
-        const mt = this.svgText(m.x+m.w/2, m.y+m.h/2+3,"MUROS",6,"#2a2a2a","Segoe UI,sans-serif","600");
-        mt.setAttribute("text-anchor","middle"); this.svg.appendChild(mt);
-    }
-
-    private svgRect(x:number,y:number,w:number,h:number,rx:number,
-                    fill:string,stroke:string,sw:string): SVGElement {
-        return svgEl("rect",{
-            x:String(x),y:String(y),width:String(w),height:String(h),rx:String(rx),
-            fill,stroke,"stroke-width":sw,
-        });
-    }
-
-    private svgText(x:number,y:number,text:string,size:number,
-                    fill:string,family:string,weight:string): SVGElement {
-        const t = svgEl("text",{
-            x:String(x),y:String(y),"font-size":String(size),
-            "font-family":family,"font-weight":weight,fill,
-        });
-        t.textContent = text;
-        return t;
-    }
-
     private drawCompass(W: number, H: number): void {
         const cx = W - 22, cy = H - 22, r = 16;
         const g = svgEl("g",{"id":"compass-group"});
+
+        // ── Stator (always fixed to screen — N is always at top) ─────────────
+        // Outer ring
         g.appendChild(svgEl("circle",{
             cx:String(cx),cy:String(cy),r:String(r),
             fill:CLR.panel,stroke:CLR.border,"stroke-width":"0.7",
         }));
-        // North arrow
-        g.appendChild(svgEl("polygon",{
-            points:`${cx},${cy-10} ${cx+2},${cy-3.5} ${cx},${cy-1} ${cx-2},${cy-3.5}`,
-            fill:"#ef4444",
-        }));
-        // South arrow
-        g.appendChild(svgEl("polygon",{
-            points:`${cx},${cy+10} ${cx+2},${cy+3.5} ${cx},${cy+1} ${cx-2},${cy+3.5}`,
+        // Inner hub
+        g.appendChild(svgEl("circle",{
+            cx:String(cx),cy:String(cy),r:"1.8",
             fill:CLR.dim,
         }));
+        // Cardinal letters — fixed on screen
         [{l:"N",dx:0,dy:-13,c:"#ef4444"},{l:"S",dx:0,dy:17,c:CLR.dim},
          {l:"E",dx:13,dy:3,c:CLR.dim},   {l:"O",dx:-13,dy:3,c:CLR.dim}]
         .forEach(({l,dx,dy,c}) => {
@@ -1012,6 +963,22 @@ export class Visual implements IVisual {
             });
             t.textContent=l; g.appendChild(t);
         });
+
+        // ── Rotor (needle — rotates with map) ────────────────────────────────
+        // Wrapped in its own group so drawCompassRotated() can rotate it around (cx,cy)
+        const needleGroup = svgEl("g",{"id":"compass-needle-group"});
+        // North half (red — points to map north)
+        needleGroup.appendChild(svgEl("polygon",{
+            points:`${cx},${cy-10} ${cx+2.5},${cy-1} ${cx-2.5},${cy-1}`,
+            fill:"#ef4444",
+        }));
+        // South half (dim — points opposite)
+        needleGroup.appendChild(svgEl("polygon",{
+            points:`${cx},${cy+10} ${cx+2.5},${cy+1} ${cx-2.5},${cy+1}`,
+            fill:CLR.dim,
+        }));
+        g.appendChild(needleGroup);
+
         this.svg.appendChild(g);
     }
 
@@ -1043,15 +1010,12 @@ export class Visual implements IVisual {
             chip.addEventListener("click",(e)=>{
                 e.stopPropagation();
                 if(this.legendFilter===r.label){
-                    // Toggle off — clear filter
                     this.legendFilter=null;
                     this.selectedIds.clear();
                     this.selMgr.clear();
                 } else {
-                    // Apply legend filter
                     this.legendFilter=r.label;
                     this.selectedIds.clear();
-                    // Find all objects matching this rule
                     const matching=this.objects.filter(obj=>{
                         const res=applyRules(this.rules,obj,this.fallback);
                         return res.label===r.label;
@@ -1069,7 +1033,6 @@ export class Visual implements IVisual {
             this.legendBar.appendChild(chip);
         });
 
-        // Clear button when legend filter is active
         if(this.legendFilter){
             const sep=mk("div",{width:"1px",height:"16px",
                                   background:CLR.border,margin:"0 4px"});
@@ -1106,22 +1069,24 @@ export class Visual implements IVisual {
         ].join(" ");
         this.transformGroup.setAttribute("transform", tShapes);
 
-        // Labels: scale + pan only (NO rotate) — always upright
-        const tLabels = [
+        // Labels + Fill: scale + pan only (NO rotate) — always upright, gravity-aware
+        const tUpright = [
             `translate(${cx + this.panX},${cy + this.panY})`,
             `scale(${this.zoomLevel})`,
             `translate(${-cx},${-cy})`,
         ].join(" ");
-        if(this.labelsGroup) this.labelsGroup.setAttribute("transform", tLabels);
+        if(this.labelsGroup) this.labelsGroup.setAttribute("transform", tUpright);
+        if(this.fillLayer)   this.fillLayer.setAttribute("transform", tUpright);
 
-        // Update rotation button styles
-        [0,90,180,270].forEach(deg=>{
-            const btn = this.target.querySelector(`#rot-btn-${deg}`) as HTMLElement;
+        // Update rotation button styles (buttons indexed by internal rotation)
+        [0,90,180,270].forEach(displayDeg=>{
+            const internalDeg = (displayDeg + 180) % 360;
+            const btn = this.target.querySelector(`#rot-btn-${internalDeg}`) as HTMLElement;
             if(btn){
-                btn.style.color        = this.rotation===deg ? "#07090a" : CLR.text;
-                btn.style.borderColor  = this.rotation===deg ? CLR.green : CLR.border;
-                btn.style.background   = this.rotation===deg ? CLR.green : CLR.card;
-                btn.style.fontWeight   = this.rotation===deg ? "700"     : "500";
+                btn.style.color        = this.rotation===internalDeg ? "#07090a" : CLR.text;
+                btn.style.borderColor  = this.rotation===internalDeg ? CLR.green : CLR.border;
+                btn.style.background   = this.rotation===internalDeg ? CLR.green : CLR.card;
+                btn.style.fontWeight   = this.rotation===internalDeg ? "700"     : "500";
             }
         });
 
@@ -1129,9 +1094,13 @@ export class Visual implements IVisual {
         const zd = this.target.querySelector("#zoom-display") as HTMLElement;
         if(zd) zd.textContent = `${Math.round(this.zoomLevel*100)}%`;
 
-        // Rebuild upright labels in labelsGroup
-        if(this.labelsGroup && this.transformGroup){
+        // Rebuild upright labels + fills — both use the same viewport-space projection
+        if(this.labelsGroup && this.fillLayer && this.transformGroup){
             clearNode(this.labelsGroup);
+            clearNode(this.fillLayer);
+
+            // Rotation math — same as shape transform, but we project shape centers
+            // into viewport space so fills/labels can be drawn axis-aligned (upright).
             const rad2 = (this.rotation * Math.PI) / 180;
             const cosR2 = Math.cos(rad2), sinR2 = Math.sin(rad2);
             const cx2 = this.vpW/2, cy2 = this.vpH/2;
@@ -1140,61 +1109,153 @@ export class Visual implements IVisual {
                 return { x: dx*cosR2 - dy*sinR2 + cx2,
                          y: dx*sinR2 + dy*cosR2 + cy2 };
             };
+
             this.transformGroup.querySelectorAll("g[data-lbl]").forEach((g2:Element) => {
                 const gcx = parseFloat(g2.getAttribute("data-cx")||"0");
                 const gcy = parseFloat(g2.getAttribute("data-cy")||"0");
-                const gcw = parseFloat(g2.getAttribute("data-cw")||"22");
-                const gch = parseFloat(g2.getAttribute("data-ch")||"46");
+                const gcwRaw = parseFloat(g2.getAttribute("data-cw")||"22");
+                const gchRaw = parseFloat(g2.getAttribute("data-ch")||"46");
+                const pct = parseFloat(g2.getAttribute("data-pct")||"0");
                 const lbl = g2.getAttribute("data-lbl")||"";
                 const val = g2.getAttribute("data-val")||"";
                 const col = g2.getAttribute("data-col")||CLR.text;
                 const hasVal = this.showValue && val !== "";
-                const fs  = Math.max(5, Math.min(10, gcw/3.5));
-                const vfs = Math.max(5, Math.min(9,  gcw/4.2));
-                const maxC = Math.max(2, Math.floor(gcw/fs*1.6));
-                const ltxt = lbl.length>maxC ? lbl.slice(0,maxC-1)+"…" : lbl;
-                // Label near top of cell, value near bottom
-                // Label near top of cell, value near bottom
-                const labelOffY = -(gch * 0.32);
-                const valueOffY =  (gch * 0.32);
-                const rMain = rotPt2(gcx, gcy + (hasVal && this.showLabel ? labelOffY : 0));
-                const rVal  = rotPt2(gcx, gcy + (this.showLabel ? valueOffY : valueOffY));
-                if(this.showLabel && lbl){
-                    const t2 = svgEl("text",{
-                        x:String(rMain.x), y:String(rMain.y),
-                        "text-anchor":"middle","dominant-baseline":"middle",
-                        "font-size":String(fs),
-                        "font-family":"Segoe UI,sans-serif","font-weight":"700",
-                        fill:CLR.text,
+
+                // When rotated 90°/270°, the visible bounding box of the cell swaps W/H.
+                // The fill and labels are drawn axis-aligned in viewport space, so we
+                // must match the rotated footprint to land inside the container shape.
+                const normRot = ((this.rotation % 360) + 360) % 360;
+                const swap = (normRot === 90 || normRot === 270);
+                const gcw = swap ? gchRaw : gcwRaw;
+                const gch = swap ? gcwRaw : gchRaw;
+
+                // Project cell center into viewport space — this is where the shape
+                // visually sits after rotation. We draw the fill axis-aligned at this
+                // screen position so gravity is always "down" for the viewer.
+                const center = rotPt2(gcx, gcy);
+
+                // ── Gravity-aware fill (always bottom-up in viewport space) ──────
+                if(pct > 0){
+                    const fillW = gcw - 2;
+                    const fillHFull = gch - 2;
+                    const fh = fillHFull * pct;
+                    // Rect anchored at bottom of cell, growing up
+                    const fx = center.x - fillW/2;
+                    const fy = center.y + fillHFull/2 - fh;
+                    const fr = svgEl("rect",{
+                        x:String(fx), y:String(fy),
+                        width:String(fillW), height:String(fh),
+                        rx:"1",
+                        fill:hexToRgba(col,.35),
                     });
-                    t2.setAttribute("pointer-events","none");
-                    t2.textContent = ltxt;
-                    this.labelsGroup!.appendChild(t2);
-                }
-                if(hasVal){
-                    const vt2 = svgEl("text",{
-                        x:String(rVal.x), y:String(rVal.y),
-                        "text-anchor":"middle","dominant-baseline":"middle",
-                        "font-size":String(vfs),
-                        "font-family":"Segoe UI,sans-serif",
+                    fr.setAttribute("pointer-events","none");
+                    this.fillLayer!.appendChild(fr);
+
+                    // Accent bar at the visual bottom of the shape
+                    const ab = svgEl("rect",{
+                        x:String(fx),
+                        y:String(center.y + fillHFull/2 - 3),
+                        width:String(fillW), height:"3", rx:"1",
                         fill:hexToRgba(col,.9),
                     });
-                    vt2.setAttribute("pointer-events","none");
-                    vt2.textContent = val;
-                    this.labelsGroup!.appendChild(vt2);
+                    ab.setAttribute("pointer-events","none");
+                    this.fillLayer!.appendChild(ab);
+                }
+
+                // ── Labels: horizontal cells → inline (label | value), vertical → stacked
+                const isHorizontal = gcw > gch * 1.2;
+
+                if (isHorizontal) {
+                    // Inline layout: LABEL  VALUE — takes advantage of wide footprint
+                    const fs  = Math.max(5, Math.min(11, gch * 0.48));
+                    const vfs = Math.max(5, Math.min(10, gch * 0.42));
+                    const maxC = Math.max(2, Math.floor(gcw / fs * 0.9));
+                    const ltxt = lbl.length>maxC ? lbl.slice(0,maxC-1)+"…" : lbl;
+
+                    // Position label left-of-center, value right-of-center
+                    const lblX = hasVal ? center.x - gcw * 0.08 : center.x;
+                    const valX = center.x + gcw * 0.28;
+                    const yMid = center.y;
+
+                    if(this.showLabel && lbl){
+                        const t2 = svgEl("text",{
+                            x:String(lblX), y:String(yMid),
+                            "text-anchor":hasVal ? "end" : "middle",
+                            "dominant-baseline":"middle",
+                            "font-size":String(fs),
+                            "font-family":"Segoe UI,sans-serif","font-weight":"700",
+                            fill:CLR.text,
+                        });
+                        t2.setAttribute("pointer-events","none");
+                        t2.textContent = ltxt;
+                        this.labelsGroup!.appendChild(t2);
+                    }
+                    if(hasVal){
+                        const vt2 = svgEl("text",{
+                            x:String(valX), y:String(yMid),
+                            "text-anchor":"middle","dominant-baseline":"middle",
+                            "font-size":String(vfs),
+                            "font-family":"Segoe UI,sans-serif","font-weight":"600",
+                            fill:hexToRgba(col,.95),
+                        });
+                        vt2.setAttribute("pointer-events","none");
+                        vt2.textContent = val;
+                        this.labelsGroup!.appendChild(vt2);
+                    }
+                } else {
+                    // Stacked layout: label on top, value on bottom (vertical cells)
+                    const fs  = Math.max(5, Math.min(10, gcw/3.5));
+                    const vfs = Math.max(5, Math.min(9,  gcw/4.2));
+                    const maxC = Math.max(2, Math.floor(gcw/fs*1.6));
+                    const ltxt = lbl.length>maxC ? lbl.slice(0,maxC-1)+"…" : lbl;
+                    const labelOffY = -(gch * 0.32);
+                    const valueOffY =  (gch * 0.32);
+                    const lblX = center.x;
+                    const lblY = center.y + (hasVal && this.showLabel ? labelOffY : 0);
+                    const valX = center.x;
+                    const valY = center.y + (this.showLabel ? valueOffY : valueOffY);
+
+                    if(this.showLabel && lbl){
+                        const t2 = svgEl("text",{
+                            x:String(lblX), y:String(lblY),
+                            "text-anchor":"middle","dominant-baseline":"middle",
+                            "font-size":String(fs),
+                            "font-family":"Segoe UI,sans-serif","font-weight":"700",
+                            fill:CLR.text,
+                        });
+                        t2.setAttribute("pointer-events","none");
+                        t2.textContent = ltxt;
+                        this.labelsGroup!.appendChild(t2);
+                    }
+                    if(hasVal){
+                        const vt2 = svgEl("text",{
+                            x:String(valX), y:String(valY),
+                            "text-anchor":"middle","dominant-baseline":"middle",
+                            "font-size":String(vfs),
+                            "font-family":"Segoe UI,sans-serif",
+                            fill:hexToRgba(col,.9),
+                        });
+                        vt2.setAttribute("pointer-events","none");
+                        vt2.textContent = val;
+                        this.labelsGroup!.appendChild(vt2);
+                    }
                 }
             });
         }
     }
 
     private drawCompassRotated(): void {
-        // Update compass to show correct orientation after rotation
+        // Rotate only the needle group, around the compass center, so it points
+        // to where the map's north currently is after rotation.
+        // The stator (ring + N/S/E/O letters) stays fixed — N is always up on screen.
         const compassG = this.svg.getElementById("compass-group");
-        if(compassG){
-            // Rotate compass needle opposite to map rotation so N always points true North
-            const needle = compassG.querySelector("polygon");
-            if(needle) needle.setAttribute("transform",`rotate(${-this.rotation},0,0)`);
-        }
+        if(!compassG) return;
+        const needleGroup = this.svg.getElementById("compass-needle-group");
+        if(!needleGroup) return;
+        const cx = this.vpW - 22, cy = this.vpH - 22;
+        // If map is rotated by `rotation` (clockwise), the north that used to point
+        // up now points in that direction — so the needle rotates the same amount.
+        needleGroup.setAttribute("transform", `rotate(${this.rotation},${cx},${cy})`);
     }
 
     private positionTip(e: MouseEvent): void {
@@ -1210,8 +1271,12 @@ export class Visual implements IVisual {
     private drawEmpty(): void {
         const tg2 = this.svg.getElementById("transform-group");
         if(tg2) clearNode(tg2);
+        const fl2 = this.svg.getElementById("fill-layer");
+        if(fl2) clearNode(fl2);
         const tlg2 = this.svg.getElementById("text-layer");
         if(tlg2) clearNode(tlg2);
+        const lg2 = this.svg.getElementById("labels-group");
+        if(lg2) clearNode(lg2);
         let bgRect2 = this.svg.getElementById("bg-rect") as SVGElement;
         if(!bgRect2){
             bgRect2 = svgEl("rect",{"id":"bg-rect"});
@@ -1232,5 +1297,23 @@ export class Visual implements IVisual {
 
     public getFormattingModel(): powerbi.visuals.FormattingModel {
         return this.fmtSvc.buildFormattingModel(this.fmtSettings);
+    }
+
+    /**
+     * Detect whether the Power BI report theme is dark.
+     * Reads host.colorPalette.background (set by PBI from the active report theme).
+     * Falls back to dark if the host doesn't expose it yet (e.g. during construction).
+     */
+    private isHostDark(): boolean {
+        try {
+            const palette = this.host && (this.host as unknown as {colorPalette?:{background?:{value?:string}}}).colorPalette;
+            const bg = palette && palette.background && palette.background.value;
+            if (bg && typeof bg === "string" && bg.length >= 4) {
+                return isDarkFromBg(bg.length === 4
+                    ? "#" + bg[1]+bg[1]+bg[2]+bg[2]+bg[3]+bg[3]
+                    : bg);
+            }
+        } catch (_err) { /* fall through */ }
+        return true; // default to dark
     }
 }
