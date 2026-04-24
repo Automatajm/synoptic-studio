@@ -1,0 +1,188 @@
+{
+  "dataRoles": [
+    {
+      "displayName": "Invernadero (ID)",
+      "name": "invernadero",
+      "kind": "Grouping"
+    },
+    {
+      "displayName": "Etiqueta",
+      "name": "etiqueta",
+      "kind": "Grouping"
+    },
+    {
+      "displayName": "Valor Principal",
+      "name": "valorPrincipal",
+      "kind": "Measure"
+    },
+    {
+      "displayName": "Campo Texto 1",
+      "name": "campoTexto1",
+      "kind": "Grouping"
+    },
+    {
+      "displayName": "Campo Texto 2",
+      "name": "campoTexto2",
+      "kind": "Grouping"
+    },
+    {
+      "displayName": "Valor 2",
+      "name": "valor2",
+      "kind": "Measure"
+    },
+    {
+      "displayName": "Valor 3",
+      "name": "valor3",
+      "kind": "Measure"
+    },
+    {
+      "displayName": "Tooltip Extra",
+      "name": "tooltipExtra",
+      "kind": "Measure"
+    },
+    {
+      "displayName": "Layout X",
+      "name": "layoutX",
+      "kind": "Grouping",
+      "description": "Coordenada X del objeto (0-940). Usar columna, no medida."
+    },
+    {
+      "displayName": "Layout Y",
+      "name": "layoutY",
+      "kind": "Grouping",
+      "description": "Coordenada Y del objeto (0-480). Usar columna, no medida."
+    },
+    {
+      "displayName": "Layout W",
+      "name": "layoutW",
+      "kind": "Grouping",
+      "description": "Ancho del objeto en pixeles."
+    },
+    {
+      "displayName": "Layout H",
+      "name": "layoutH",
+      "kind": "Grouping",
+      "description": "Alto del objeto en pixeles."
+    }
+  ],
+  "objects": {
+    "reglas": {
+      "displayName": "Reglas de Color",
+      "properties": {
+        "reglasJson": {
+          "displayName": "Reglas (JSON)",
+          "type": {
+            "text": true
+          }
+        }
+      }
+    },
+    "general": {
+      "displayName": "General",
+      "properties": {
+        "mostrarEtiqueta": {
+          "displayName": "Mostrar etiqueta",
+          "type": {
+            "bool": true
+          }
+        },
+        "mostrarValor": {
+          "displayName": "Mostrar valor principal",
+          "type": {
+            "bool": true
+          }
+        },
+        "colorFallback": {
+          "displayName": "Color sin regla",
+          "type": {
+            "fill": {
+              "solid": {
+                "color": true
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "dataViewMappings": [
+    {
+      "categorical": {
+        "categories": {
+          "select": [
+            {
+              "bind": {
+                "to": "invernadero"
+              }
+            },
+            {
+              "bind": {
+                "to": "etiqueta"
+              }
+            },
+            {
+              "bind": {
+                "to": "campoTexto1"
+              }
+            },
+            {
+              "bind": {
+                "to": "campoTexto2"
+              }
+            },
+            {
+              "bind": {
+                "to": "layoutX"
+              }
+            },
+            {
+              "bind": {
+                "to": "layoutY"
+              }
+            },
+            {
+              "bind": {
+                "to": "layoutW"
+              }
+            },
+            {
+              "bind": {
+                "to": "layoutH"
+              }
+            }
+          ],
+          "dataReductionAlgorithm": {
+            "top": {
+              "count": 1000
+            }
+          }
+        },
+        "values": {
+          "select": [
+            {
+              "bind": {
+                "to": "valorPrincipal"
+              }
+            },
+            {
+              "bind": {
+                "to": "valor2"
+              }
+            },
+            {
+              "bind": {
+                "to": "valor3"
+              }
+            },
+            {
+              "bind": {
+                "to": "tooltipExtra"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "privileges": []
+}

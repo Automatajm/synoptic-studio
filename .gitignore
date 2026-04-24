@@ -1,0 +1,8 @@
+node_modules/
+dist/
+.tmp/
+webpack.statistics.*.html
+*.pbiviz
+.DS_Store
+Thumbs.db
+*.log
