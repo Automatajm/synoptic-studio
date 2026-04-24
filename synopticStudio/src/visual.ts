@@ -47,13 +47,29 @@ const PALETTE = [
     "#e879f9","#fbbf24","#ffffff","#94a3b8",
 ];
 
-// ── Theme ─────────────────────────────────────────────────────────────────────
-const CLR = {
-    bg:"#07090a", surface:"#0c1014", panel:"#090d10",
-    card:"#0f1518", border:"#182028", hi:"#1e2e3a",
-    green:"#00e5a0", dim:"#3a5868", text:"#c0d8e4",
-    lo:"#0e1418", muted:"#6a8898", red:"#ef4444", glo:"#00301e",
-};
+// ── Theme — dual mode (dark default, adapts to system) ────────────────────────
+function isDark(): boolean {
+    return window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
+}
+function getTheme() {
+    const dark = isDark();
+    return {
+        bg:      dark ? "#07090a" : "#f4f6f8",
+        surface: dark ? "#0c1014" : "#ffffff",
+        panel:   dark ? "#090d10" : "#ffffff",
+        card:    dark ? "#0f1518" : "#f0f4f7",
+        border:  dark ? "#182028" : "#d0dae3",
+        hi:      dark ? "#1e2e3a" : "#c8d8e8",
+        green:   dark ? "#00e5a0" : "#008855",
+        dim:     dark ? "#3a5868" : "#6a8090",
+        text:    dark ? "#c0d8e4" : "#1a2a35",
+        lo:      dark ? "#0e1418" : "#e8eef2",
+        muted:   dark ? "#6a8898" : "#5a7080",
+        red:     "#ef4444",
+        glo:     dark ? "#00301e" : "#d4f0e4",
+    };
+}
+let CLR = getTheme();
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 let _uid = 0;
@@ -182,14 +198,14 @@ function buildTooltip(obj: SynopticObject, color: string, ruleLabel: string,
 
 // ── Rules Editor ──────────────────────────────────────────────────────────────
 const OPS = [
-    {k:"eq",l:"= igual"},{k:"neq",l:"≠ distinto"},
-    {k:"gt",l:"> mayor"},{k:"gte",l:"≥ mayor/igual"},
-    {k:"lt",l:"< menor"},{k:"lte",l:"≤ menor/igual"},
-    {k:"between",l:"entre"},
+    {k:"eq",l:"= equals"},{k:"neq",l:"≠ not equals"},
+    {k:"gt",l:"> greater"},{k:"gte",l:"≥ greater/equal"},
+    {k:"lt",l:"< less"},{k:"lte",l:"≤ less/equal"},
+    {k:"between",l:"between"},
 ];
 const FIELDS = [
-    {k:"campoTexto1",l:"Campo Texto 1"},{k:"campoTexto2",l:"Campo Texto 2"},
-    {k:"valorPrincipal",l:"Valor Principal"},{k:"valor2",l:"Valor 2"},{k:"valor3",l:"Valor 3"},
+    {k:"campoTexto1",l:"Text Field 1"},{k:"campoTexto2",l:"Text Field 2"},
+    {k:"valorPrincipal",l:"Main Value"},{k:"valor2",l:"Value 2"},{k:"valor3",l:"Value 3"},
 ];
 
 class RulesEditor {
@@ -223,9 +239,9 @@ class RulesEditor {
                               textTransform:"uppercase",marginBottom:"1px"});
         hs.textContent="Synoptic Studio";
         const hm = mk("div",{fontSize:"13px",color:CLR.green,fontWeight:"700"});
-        hm.textContent="Motor de Reglas";
+        hm.textContent="Color Rules Engine";
         ht.appendChild(hs); ht.appendChild(hm);
-        const cb = mk("button",btn(CLR.dim)); cb.textContent="✕ cerrar";
+        const cb = mk("button",btn(CLR.dim)); cb.textContent="✕ close";
         cb.addEventListener("click",()=>this.hide());
         hdr.appendChild(ht); hdr.appendChild(cb);
         this.panel.appendChild(hdr);
@@ -240,7 +256,7 @@ class RulesEditor {
             padding:"7px 10px", marginBottom:"10px",
             fontSize:"8px", color:CLR.muted, lineHeight:"1.6",
         });
-        info.textContent="Evalúa de arriba a abajo — la primera regla que coincide define el color. ↑↓ ajusta prioridad. El checkbox activa/desactiva sin borrar.";
+        info.textContent="Rules evaluate top to bottom — first match sets the color. Use ↑↓ to adjust priority. Checkbox enables/disables without deleting.";
         body.appendChild(info);
 
         // Palette
@@ -248,7 +264,7 @@ class RulesEditor {
                                borderRadius:"6px",padding:"7px 10px",marginBottom:"10px"});
         const pt = mk("div",{fontSize:"7px",color:CLR.dim,textTransform:"uppercase",
                                letterSpacing:".08em",marginBottom:"5px"});
-        pt.textContent="PALETA"; pb.appendChild(pt);
+        pt.textContent="PALETTE"; pb.appendChild(pt);
         const pr = mk("div",{display:"flex",flexWrap:"wrap",gap:"4px"});
         PALETTE.forEach(h=>{
             const d=mk("div",{width:"20px",height:"20px",borderRadius:"4px",
@@ -261,13 +277,13 @@ class RulesEditor {
         const rh=mk("div",{display:"flex",justifyContent:"space-between",
                              alignItems:"center",marginBottom:"6px"});
         const rl=mk("div",{fontSize:"8px",color:CLR.dim});
-        rl.textContent="REGLAS — evalúa en orden";
+        rl.textContent="RULES — evaluated in order";
         const ab=mk("button",{...btn(CLR.green,CLR.glo),padding:"3px 10px"});
-        ab.textContent="+ Agregar";
+        ab.textContent="+ Add rule";
         ab.addEventListener("click",()=>{
             this.rules.push({id:uid(),field:"campoTexto1",op:"eq",
                               value:"",value2:"",color:"#00e5a0",
-                              label:"Nueva regla",enabled:true});
+                              label:"New rule",enabled:true});
             this.renderList();
         });
         rh.appendChild(rl); rh.appendChild(ab); body.appendChild(rh);
@@ -277,7 +293,7 @@ class RulesEditor {
         // Legend label
         const ll=mk("div",{fontSize:"7px",color:CLR.dim,textTransform:"uppercase",
                              letterSpacing:".08em",marginTop:"10px",marginBottom:"5px"});
-        ll.textContent="LEYENDA"; body.appendChild(ll);
+        ll.textContent="LEGEND PREVIEW"; body.appendChild(ll);
         this.legEl=mk("div",{display:"flex",flexWrap:"wrap",gap:"4px"});
         body.appendChild(this.legEl);
 
@@ -287,7 +303,7 @@ class RulesEditor {
                              display:"flex",justifyContent:"flex-end"});
         const sb=mk("button",{...btn(CLR.green,CLR.glo),
                                 padding:"6px 18px",fontSize:"10px",fontWeight:"700"});
-        sb.textContent="✓ Guardar reglas";
+        sb.textContent="✓ Save rules";
         sb.addEventListener("click",()=>{ this.onSave(this.rules); this.hide(); });
         sw.appendChild(sb); body.appendChild(sw);
 
@@ -393,7 +409,7 @@ class RulesEditor {
 
         // Value
         const vi=mk("input",{...INP,flex:"1",minWidth:"0"}) as HTMLInputElement;
-        vi.value=rule.value; vi.placeholder="valor";
+        vi.value=rule.value; vi.placeholder="value";
         vi.addEventListener("input",()=>rule.value=vi.value);
         row.appendChild(vi);
 
@@ -402,14 +418,14 @@ class RulesEditor {
             const sep=mk("span",{color:CLR.dim,fontSize:"8px",flexShrink:"0"});
             sep.textContent="–"; row.appendChild(sep);
             const v2=mk("input",{...INP,flex:"1",minWidth:"0"}) as HTMLInputElement;
-            v2.value=rule.value2||""; v2.placeholder="máx";
+            v2.value=rule.value2||""; v2.placeholder="max";
             v2.addEventListener("input",()=>rule.value2=v2.value);
             row.appendChild(v2);
         }
 
         // Label
         const li=mk("input",{...INP,width:"78px",flexShrink:"0"}) as HTMLInputElement;
-        li.value=rule.label; li.placeholder="etiqueta";
+        li.value=rule.label; li.placeholder="label";
         li.addEventListener("input",()=>rule.label=li.value);
         row.appendChild(li);
 
@@ -458,13 +474,15 @@ export class Visual implements IVisual {
     private panX     = 0;
     private panY     = 0;
     private zoomLevel= 1.0;
-    private rotation = 0;   // 0 | 90 | 180 | 270
+        private rotation = 180; // 180 = correct orientation for this farm
     private isPanning= false;
     private panStartX= 0;
     private panStartY= 0;
     private panOriginX=0;
     private panOriginY=0;
     private transformGroup: SVGElement | null = null;
+    private textLayer:      SVGElement | null = null;
+    private labelsGroup:    SVGElement | null = null;
     private fieldNames:  Record<string,string> = {};
     private fallback     = "#52626a";
     private showLabel    = true;
@@ -478,32 +496,77 @@ export class Visual implements IVisual {
         this.selMgr = this.host.createSelectionManager();
         this.fmtSvc = new FormattingSettingsService();
 
+        // Refresh theme each render (handles system dark/light switch)
+        CLR = getTheme();
         this.target.style.cssText=
-            "position:relative;width:100%;height:100%;overflow:hidden;"+
-            "background:#07090a;font-family:'Segoe UI',sans-serif;";
+            `position:relative;width:100%;height:100%;overflow:hidden;`+
+            `background:${CLR.bg};font-family:'Segoe UI',sans-serif;`;
 
         // Top bar
         const bar=mk("div",{
-            position:"absolute",top:"0",left:"0",right:"0",height:"28px",
+            position:"absolute",top:"0",left:"0",right:"0",height:"30px",
             background:CLR.surface,borderBottom:`1px solid ${CLR.border}`,
-            display:"flex",alignItems:"center",padding:"0 8px",gap:"8px",zIndex:"100",
+            display:"flex",alignItems:"center",padding:"0 10px",gap:"6px",zIndex:"100",
+            boxShadow:"0 1px 4px rgba(0,0,0,.15)",
         });
-        const gb=mk("button",{...btn(CLR.green,CLR.glo),padding:"3px 10px",fontSize:"9px"});
-        gb.textContent="⚙ Reglas de color";
+        // ── Row 1: controls bar ──────────────────────────────────────────────────
+        const gb=mk("button",{
+            background:CLR.green,border:"none",color:"#07090a",
+            borderRadius:"4px",padding:"3px 7px",cursor:"pointer",
+            fontFamily:"'Segoe UI',sans-serif",fontSize:"13px",fontWeight:"700",
+            lineHeight:"1",flexShrink:"0",
+        });
+        gb.textContent="⚙";
+        gb.setAttribute("title","Color Rules");
         bar.appendChild(gb);
-        bar.appendChild(mk("div",{width:"1px",height:"16px",background:CLR.border}));
-        this.legendBar=mk("div",{display:"flex",gap:"4px",flexWrap:"wrap",alignItems:"center",flex:"1"});
-        bar.appendChild(this.legendBar);
+        bar.appendChild(mk("div",{width:"1px",height:"16px",background:CLR.border,
+                                   flexShrink:"0",margin:"0 4px"}));
+        // Controls go directly in bar row 1
+        const ctrlWrap=mk("div",{
+            display:"flex",alignItems:"center",gap:"3px",
+            flex:"1",flexWrap:"nowrap",overflow:"hidden",
+        });
+        bar.appendChild(ctrlWrap);
         this.target.appendChild(bar);
 
+        // ── Row 2: legend bar (full width, always visible) ───────────────────
+        const legendRow=mk("div",{
+            position:"absolute",top:"30px",left:"0",right:"0",
+            height:"24px",minHeight:"24px",
+            background:CLR.panel,
+            borderBottom:`1px solid ${CLR.border}`,
+            display:"flex",alignItems:"center",
+            padding:"0 8px",gap:"5px",zIndex:"99",
+            overflow:"hidden",
+        });
+        this.legendBar=mk("div",{
+            display:"flex",gap:"5px",flexWrap:"nowrap",
+            alignItems:"center",flex:"1",overflow:"hidden",minWidth:"0",
+        });
+        legendRow.appendChild(this.legendBar);
+        this.target.appendChild(legendRow);
+
         // Canvas wrapper
-        this.wrapper=mk("div",{position:"absolute",top:"28px",left:"0",right:"0",bottom:"0"});
+        this.wrapper=mk("div",{position:"absolute",top:"54px",left:"0",right:"0",bottom:"0"});
         this.target.appendChild(this.wrapper);
 
-        // SVG
+        // SVG — set up persistent structure once
         this.svg=document.createElementNS("http://www.w3.org/2000/svg","svg") as SVGSVGElement;
         this.svg.style.cssText="position:absolute;top:0;left:0;width:100%;height:100%";
         this.wrapper.appendChild(this.svg);
+
+        // Create persistent layers immediately
+        const initBg = svgEl("rect",{"id":"bg-rect",width:"100%",height:"100%",fill:CLR.bg});
+        this.svg.appendChild(initBg);
+        const initTg = svgEl("g",{"id":"transform-group"});
+        this.svg.appendChild(initTg);
+        this.transformGroup = initTg;
+        const initTlg = svgEl("g",{"id":"text-layer"});
+        this.svg.appendChild(initTlg);
+        this.textLayer = initTlg;
+        const initLg = svgEl("g",{"id":"labels-group"});
+        this.svg.appendChild(initLg);
+        this.labelsGroup = initLg;
 
         // Tooltip
         this.tooltipDiv=document.createElement("div") as HTMLDivElement;
@@ -520,20 +583,24 @@ export class Visual implements IVisual {
         gb.addEventListener("click",(e)=>{ e.stopPropagation(); this.editor.toggle(); });
 
         // Separator
-        bar.appendChild(mk("div",{width:"1px",height:"20px",background:CLR.border,marginLeft:"4px"}));
+        // Controls separator — pushed right, never shrinks
+        ctrlWrap.appendChild(mk("div",{width:"1px",height:"20px",background:CLR.border,
+                                   marginLeft:"4px",flexShrink:"0"}));
 
         // Rotation buttons
-        const rotLabel = mk("span",{fontSize:"8px",color:CLR.dim,
-                                     fontFamily:"'Segoe UI',sans-serif",marginLeft:"4px"});
-        rotLabel.textContent="↻";
-        bar.appendChild(rotLabel);
+        const rotLabel = mk("span",{fontSize:"9px",color:CLR.text,
+                                     fontFamily:"'Segoe UI',sans-serif",
+                                     marginLeft:"4px",fontWeight:"600",flexShrink:"0"});
+        rotLabel.textContent="Rotate:";
+        ctrlWrap.appendChild(rotLabel);
 
         [0,90,180,270].forEach(deg=>{
             const rb=mk("button",{
-                fontFamily:"'Segoe UI',sans-serif",fontSize:"8px",
-                padding:"2px 6px",background:"none",
-                border:`1px solid ${CLR.border}`,color:CLR.dim,
+                fontFamily:"'Segoe UI',sans-serif",fontSize:"9px",
+                padding:"2px 8px",background:CLR.card,
+                border:`1px solid ${CLR.border}`,color:CLR.text,
                 borderRadius:"3px",cursor:"pointer",marginLeft:"2px",
+                fontWeight:"500",
             });
             rb.textContent=`${deg}°`;
             rb.id=`rot-btn-${deg}`;
@@ -544,57 +611,58 @@ export class Visual implements IVisual {
                 this.applyTransform();
                 this.drawCompassRotated();
             });
-            bar.appendChild(rb);
+            ctrlWrap.appendChild(rb);
         });
 
         // Zoom controls
-        bar.appendChild(mk("div",{width:"1px",height:"20px",background:CLR.border,marginLeft:"6px"}));
-        const zoomIn=mk("button",{fontFamily:"'Segoe UI',sans-serif",fontSize:"11px",
-            padding:"1px 7px",background:"none",
-            border:`1px solid ${CLR.border}`,color:CLR.dim,
-            borderRadius:"3px",cursor:"pointer",marginLeft:"4px"});
+        ctrlWrap.appendChild(mk("div",{width:"1px",height:"20px",background:CLR.border,
+                                   marginLeft:"6px",flexShrink:"0"}));
+        const zoomIn=mk("button",{fontFamily:"'Segoe UI',sans-serif",fontSize:"12px",
+            padding:"1px 9px",background:CLR.card,
+            border:`1px solid ${CLR.border}`,color:CLR.text,
+            borderRadius:"3px",cursor:"pointer",marginLeft:"4px",fontWeight:"700"});
         zoomIn.textContent="+";
         zoomIn.addEventListener("click",(e)=>{
             e.stopPropagation();
             this.zoomLevel=Math.min(this.zoomLevel*1.25,5);
             this.applyTransform();
         });
-        bar.appendChild(zoomIn);
+        ctrlWrap.appendChild(zoomIn);
 
-        const zoomOut=mk("button",{fontFamily:"'Segoe UI',sans-serif",fontSize:"11px",
-            padding:"1px 7px",background:"none",
-            border:`1px solid ${CLR.border}`,color:CLR.dim,
-            borderRadius:"3px",cursor:"pointer",marginLeft:"2px"});
+        const zoomOut=mk("button",{fontFamily:"'Segoe UI',sans-serif",fontSize:"12px",
+            padding:"1px 9px",background:CLR.card,
+            border:`1px solid ${CLR.border}`,color:CLR.text,
+            borderRadius:"3px",cursor:"pointer",marginLeft:"2px",fontWeight:"700"});
         zoomOut.textContent="−";
         zoomOut.addEventListener("click",(e)=>{
             e.stopPropagation();
             this.zoomLevel=Math.max(this.zoomLevel/1.25,0.2);
             this.applyTransform();
         });
-        bar.appendChild(zoomOut);
+        ctrlWrap.appendChild(zoomOut);
 
         const zoomDisplay = mk("span",{
-            fontFamily:"'Segoe UI',sans-serif",fontSize:"8px",
-            color:CLR.dim,marginLeft:"4px",minWidth:"28px",
-            textAlign:"center",
+            fontFamily:"'Segoe UI',sans-serif",fontSize:"9px",
+            color:CLR.text,marginLeft:"4px",minWidth:"32px",
+            textAlign:"center",fontWeight:"600",flexShrink:"0",
         });
         zoomDisplay.id="zoom-display";
         zoomDisplay.textContent="100%";
-        bar.appendChild(zoomDisplay);
+        ctrlWrap.appendChild(zoomDisplay);
 
         // Reset button
-        const resetBtn=mk("button",{fontFamily:"'Segoe UI',sans-serif",fontSize:"8px",
-            padding:"2px 8px",background:"none",
-            border:`1px solid ${CLR.border}`,color:CLR.dim,
-            borderRadius:"3px",cursor:"pointer",marginLeft:"4px"});
-        resetBtn.textContent="⊙ reset";
+        const resetBtn=mk("button",{fontFamily:"'Segoe UI',sans-serif",fontSize:"9px",
+            padding:"2px 9px",background:CLR.card,
+            border:`1px solid ${CLR.border}`,color:CLR.text,
+            borderRadius:"3px",cursor:"pointer",marginLeft:"4px",fontWeight:"500"});
+        resetBtn.textContent="↺ Reset";
         resetBtn.addEventListener("click",(e)=>{
             e.stopPropagation();
             this.panX=0; this.panY=0; this.zoomLevel=1.0; this.rotation=0;
             this.applyTransform();
             this.drawCompassRotated();
         });
-        bar.appendChild(resetBtn);
+        ctrlWrap.appendChild(resetBtn);
         this.svg.addEventListener("click",()=>{
             this.selectedIds.clear(); this.selMgr.clear();
             this.legendFilter = null;
@@ -639,11 +707,13 @@ export class Visual implements IVisual {
     }
 
     public update(options: VisualUpdateOptions): void {
+        CLR = getTheme();
+        this.target.style.background = CLR.bg;
         this.fmtSettings=this.fmtSvc.populateFormattingSettingsModel(
             VisualFormattingSettingsModel, options.dataViews[0]);
 
         this.vpW=options.viewport.width;
-        this.vpH=options.viewport.height-28;
+        this.vpH=options.viewport.height-54;
         this.svg.setAttribute("viewBox",`0 0 ${this.vpW} ${this.vpH}`);
 
         try { this.rules=JSON.parse(this.fmtSettings.reglaColorCard.reglasJson.value||"[]"); }
@@ -692,19 +762,49 @@ export class Visual implements IVisual {
 
     private draw(): void {
         const W=this.vpW, H=this.vpH;
-        clearNode(this.svg);
-        this.svg.appendChild(svgEl("rect",{width:String(W),height:String(H),fill:CLR.bg}));
+
+        // Update background rect without clearing entire SVG
+        let bgRect = this.svg.getElementById("bg-rect") as SVGElement;
+        if(!bgRect){
+            bgRect = svgEl("rect",{"id":"bg-rect"});
+            this.svg.insertBefore(bgRect, this.svg.firstChild);
+        }
+        bgRect.setAttribute("width",String(W));
+        bgRect.setAttribute("height",String(H));
+        bgRect.setAttribute("fill",CLR.bg);
+
         if(!this.objects.length){ this.drawEmpty(); return; }
 
-        // Block zone backgrounds disabled
-
-        // Transform group for pan/zoom/rotate — reuse across redraws
+        // Transform group — clear contents only, preserve the element (keeps transform)
         let tg = this.svg.getElementById("transform-group") as SVGElement;
         if(!tg){
             tg = svgEl("g",{"id":"transform-group"});
+            this.svg.appendChild(tg);
         }
-        this.svg.appendChild(tg);
+        clearNode(tg);
         this.transformGroup = tg;
+
+        // Text layer — clear contents, keep element
+        let tlg = this.svg.getElementById("text-layer") as SVGElement;
+        if(!tlg){
+            tlg = svgEl("g",{"id":"text-layer"});
+            this.svg.appendChild(tlg);
+        }
+        clearNode(tlg);
+        this.textLayer = tlg;
+
+        // Labels group — pan+zoom only, NO rotation
+        let lg = this.svg.getElementById("labels-group") as SVGElement;
+        if(!lg){
+            lg = svgEl("g",{"id":"labels-group"});
+            this.svg.appendChild(lg);
+        }
+        clearNode(lg);
+        this.labelsGroup = lg;
+
+        // Remove old compass before redrawing
+        const oldCompass = this.svg.getElementById("compass-group");
+        if(oldCompass && oldCompass.parentNode) oldCompass.parentNode.removeChild(oldCompass);
 
         // Use fixed layout if objects have layoutX/layoutY, else auto-grid
         const hasFixed = this.objects.length > 0 && this.objects[0].layoutX !== undefined;
@@ -749,20 +849,24 @@ export class Visual implements IVisual {
             }));
 
             if(!dimmed&&obj.valorPrincipal!==undefined&&obj.valorPrincipal>0){
-                const pct=Math.min(obj.valorPrincipal,100)/100;
-                const fh=Math.round((cell.h-2)*pct);
-                const fr=svgEl("rect",{
-                    x:String(cell.x+1),y:String(cell.y+cell.h-1-fh),
-                    width:String(cell.w-2),height:String(fh),rx:"1",
-                    fill:hexToRgba(color,.28),
+                const pct = Math.min(obj.valorPrincipal,100)/100;
+                const fh  = Math.round((cell.h-2)*pct);
+                const fr  = svgEl("rect",{
+                    x:String(cell.x+1),
+                    y:String(cell.y+cell.h-1-fh),
+                    width:String(cell.w-2),
+                    height:String(fh),
+                    rx:"1",
+                    fill:hexToRgba(color,.35),
                 });
                 fr.setAttribute("pointer-events","none");
                 g.appendChild(fr);
             }
 
             if(!dimmed){
+                // Accent bar at BOTTOM to reinforce bottom-up fill direction
                 const ab=svgEl("rect",{
-                    x:String(cell.x+1),y:String(cell.y+1),
+                    x:String(cell.x+1),y:String(cell.y+cell.h-4),
                     width:String(cell.w-2),height:"3",rx:"1",
                     fill:hexToRgba(color,.9),
                 });
@@ -770,33 +874,16 @@ export class Visual implements IVisual {
                 g.appendChild(ab);
             }
 
-            if(this.showLabel){
-                const fs=Math.max(7,Math.min(11,cell.w/4));
-                const cx=cell.x+cell.w/2, cy=cell.y+cell.h/2+(this.showValue?-3:3);
-                const t=svgEl("text",{
-                    x:String(cx), y:String(cy),
-                    "text-anchor":"middle","font-size":String(fs),
-                    "font-family":"Segoe UI,sans-serif","font-weight":"700",
-                    fill:dimmed?"#1e2e3a":CLR.text,
-                    // Counter-rotate text around its own center to keep it upright
-                    "transform":`rotate(${-this.rotation},${cx},${cy})`,
-                });
-                t.setAttribute("pointer-events","none");
-                t.textContent=obj.label.length>7?obj.label.slice(0,6)+"…":obj.label;
-                g.appendChild(t);
-            }
-
-            if(this.showValue&&obj.valorPrincipal!==undefined&&!dimmed){
-                const vcx=cell.x+cell.w/2, vcy=cell.y+cell.h/2+10;
-                const vt=svgEl("text",{
-                    x:String(vcx),y:String(vcy),
-                    "text-anchor":"middle","font-size":"8",
-                    "font-family":"Segoe UI,sans-serif",fill:hexToRgba(color,.8),
-                    "transform":`rotate(${-this.rotation},${vcx},${vcy})`,
-                });
-                vt.setAttribute("pointer-events","none");
-                vt.textContent=String(Math.round(obj.valorPrincipal));
-                g.appendChild(vt);
+            // Store label data for labelsGroup rendering (upright, no rotation)
+            if(!dimmed){
+                g.setAttribute("data-lbl", obj.label);
+                g.setAttribute("data-val", obj.valorPrincipal!==undefined
+                    ? String(Math.round(obj.valorPrincipal)) : "");
+                g.setAttribute("data-cx",  String(cell.x+cell.w/2));
+                g.setAttribute("data-cy",  String(cell.y+cell.h/2));
+                g.setAttribute("data-cw",  String(cell.w));
+                g.setAttribute("data-ch",  String(cell.h));
+                g.setAttribute("data-col", color);
             }
 
             const hr=svgEl("rect",{
@@ -840,10 +927,11 @@ export class Visual implements IVisual {
             tg.appendChild(g);
         });
 
-        // Compass fixed on SVG top (outside transform group)
-        this.drawCompass(this.vpW, this.vpH);
-        // Re-apply transform so zoom/pan/rotate survive redraws
+        // Apply shape transform first
         if(this.transformGroup) this.applyTransform();
+
+        // Compass fixed on SVG top
+        this.drawCompass(this.vpW, this.vpH);
         this.drawCompassRotated();
     }
 
@@ -992,7 +1080,7 @@ export class Visual implements IVisual {
                 border:`1px solid ${CLR.border}`,color:CLR.dim,
                 borderRadius:"4px",cursor:"pointer",
             });
-            clrBtn.textContent="✕ limpiar";
+            clrBtn.textContent="✕ clear";
             clrBtn.addEventListener("click",(e)=>{
                 e.stopPropagation();
                 this.legendFilter=null;
@@ -1009,28 +1097,94 @@ export class Visual implements IVisual {
         if(!this.transformGroup) return;
         const W = this.vpW, H = this.vpH;
         const cx = W / 2, cy = H / 2;
-        // Build transform: center origin, rotate, scale, pan
-        const t = [
+        // Shapes: rotate + scale + pan
+        const tShapes = [
             `translate(${cx + this.panX},${cy + this.panY})`,
             `scale(${this.zoomLevel})`,
             `rotate(${this.rotation})`,
             `translate(${-cx},${-cy})`,
         ].join(" ");
-        this.transformGroup.setAttribute("transform", t);
+        this.transformGroup.setAttribute("transform", tShapes);
+
+        // Labels: scale + pan only (NO rotate) — always upright
+        const tLabels = [
+            `translate(${cx + this.panX},${cy + this.panY})`,
+            `scale(${this.zoomLevel})`,
+            `translate(${-cx},${-cy})`,
+        ].join(" ");
+        if(this.labelsGroup) this.labelsGroup.setAttribute("transform", tLabels);
 
         // Update rotation button styles
         [0,90,180,270].forEach(deg=>{
             const btn = this.target.querySelector(`#rot-btn-${deg}`) as HTMLElement;
             if(btn){
-                btn.style.color        = this.rotation===deg ? CLR.green : CLR.dim;
+                btn.style.color        = this.rotation===deg ? "#07090a" : CLR.text;
                 btn.style.borderColor  = this.rotation===deg ? CLR.green : CLR.border;
-                btn.style.background   = this.rotation===deg ? CLR.glo   : "none";
+                btn.style.background   = this.rotation===deg ? CLR.green : CLR.card;
+                btn.style.fontWeight   = this.rotation===deg ? "700"     : "500";
             }
         });
 
         // Update zoom level display
         const zd = this.target.querySelector("#zoom-display") as HTMLElement;
         if(zd) zd.textContent = `${Math.round(this.zoomLevel*100)}%`;
+
+        // Rebuild upright labels in labelsGroup
+        if(this.labelsGroup && this.transformGroup){
+            clearNode(this.labelsGroup);
+            const rad2 = (this.rotation * Math.PI) / 180;
+            const cosR2 = Math.cos(rad2), sinR2 = Math.sin(rad2);
+            const cx2 = this.vpW/2, cy2 = this.vpH/2;
+            const rotPt2 = (px:number, py:number) => {
+                const dx=px-cx2, dy=py-cy2;
+                return { x: dx*cosR2 - dy*sinR2 + cx2,
+                         y: dx*sinR2 + dy*cosR2 + cy2 };
+            };
+            this.transformGroup.querySelectorAll("g[data-lbl]").forEach((g2:Element) => {
+                const gcx = parseFloat(g2.getAttribute("data-cx")||"0");
+                const gcy = parseFloat(g2.getAttribute("data-cy")||"0");
+                const gcw = parseFloat(g2.getAttribute("data-cw")||"22");
+                const gch = parseFloat(g2.getAttribute("data-ch")||"46");
+                const lbl = g2.getAttribute("data-lbl")||"";
+                const val = g2.getAttribute("data-val")||"";
+                const col = g2.getAttribute("data-col")||CLR.text;
+                const hasVal = this.showValue && val !== "";
+                const fs  = Math.max(5, Math.min(10, gcw/3.5));
+                const vfs = Math.max(5, Math.min(9,  gcw/4.2));
+                const maxC = Math.max(2, Math.floor(gcw/fs*1.6));
+                const ltxt = lbl.length>maxC ? lbl.slice(0,maxC-1)+"…" : lbl;
+                // Label near top of cell, value near bottom
+                // Label near top of cell, value near bottom
+                const labelOffY = -(gch * 0.32);
+                const valueOffY =  (gch * 0.32);
+                const rMain = rotPt2(gcx, gcy + (hasVal && this.showLabel ? labelOffY : 0));
+                const rVal  = rotPt2(gcx, gcy + (this.showLabel ? valueOffY : valueOffY));
+                if(this.showLabel && lbl){
+                    const t2 = svgEl("text",{
+                        x:String(rMain.x), y:String(rMain.y),
+                        "text-anchor":"middle","dominant-baseline":"middle",
+                        "font-size":String(fs),
+                        "font-family":"Segoe UI,sans-serif","font-weight":"700",
+                        fill:CLR.text,
+                    });
+                    t2.setAttribute("pointer-events","none");
+                    t2.textContent = ltxt;
+                    this.labelsGroup!.appendChild(t2);
+                }
+                if(hasVal){
+                    const vt2 = svgEl("text",{
+                        x:String(rVal.x), y:String(rVal.y),
+                        "text-anchor":"middle","dominant-baseline":"middle",
+                        "font-size":String(vfs),
+                        "font-family":"Segoe UI,sans-serif",
+                        fill:hexToRgba(col,.9),
+                    });
+                    vt2.setAttribute("pointer-events","none");
+                    vt2.textContent = val;
+                    this.labelsGroup!.appendChild(vt2);
+                }
+            });
+        }
     }
 
     private drawCompassRotated(): void {
@@ -1054,13 +1208,25 @@ export class Visual implements IVisual {
     }
 
     private drawEmpty(): void {
-        clearNode(this.svg);
-        this.svg.appendChild(svgEl("rect",{width:String(this.vpW),height:String(this.vpH),fill:CLR.bg}));
-        const t=svgEl("text",{
+        const tg2 = this.svg.getElementById("transform-group");
+        if(tg2) clearNode(tg2);
+        const tlg2 = this.svg.getElementById("text-layer");
+        if(tlg2) clearNode(tlg2);
+        let bgRect2 = this.svg.getElementById("bg-rect") as SVGElement;
+        if(!bgRect2){
+            bgRect2 = svgEl("rect",{"id":"bg-rect"});
+            this.svg.appendChild(bgRect2);
+        }
+        bgRect2.setAttribute("width",String(this.vpW));
+        bgRect2.setAttribute("height",String(this.vpH));
+        bgRect2.setAttribute("fill",CLR.bg);
+        const oldMsg = this.svg.getElementById("empty-msg");
+        if(oldMsg && oldMsg.parentNode) oldMsg.parentNode.removeChild(oldMsg);
+        const t=svgEl("text",{"id":"empty-msg",
             x:String(this.vpW/2),y:String(this.vpH/2),"text-anchor":"middle",
             "font-size":"12","font-family":"Segoe UI,sans-serif",fill:CLR.dim,
         });
-        t.textContent="Arrastra el campo Invernadero (ID) al visual";
+        t.textContent="Drag the Object ID field to the visual";
         this.svg.appendChild(t);
     }
 

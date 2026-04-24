@@ -1,188 +1,198 @@
 {
-  "dataRoles": [
-    {
-      "displayName": "Invernadero (ID)",
-      "name": "invernadero",
-      "kind": "Grouping"
-    },
-    {
-      "displayName": "Etiqueta",
-      "name": "etiqueta",
-      "kind": "Grouping"
-    },
-    {
-      "displayName": "Valor Principal",
-      "name": "valorPrincipal",
-      "kind": "Measure"
-    },
-    {
-      "displayName": "Campo Texto 1",
-      "name": "campoTexto1",
-      "kind": "Grouping"
-    },
-    {
-      "displayName": "Campo Texto 2",
-      "name": "campoTexto2",
-      "kind": "Grouping"
-    },
-    {
-      "displayName": "Valor 2",
-      "name": "valor2",
-      "kind": "Measure"
-    },
-    {
-      "displayName": "Valor 3",
-      "name": "valor3",
-      "kind": "Measure"
-    },
-    {
-      "displayName": "Tooltip Extra",
-      "name": "tooltipExtra",
-      "kind": "Measure"
-    },
-    {
-      "displayName": "Layout X",
-      "name": "layoutX",
-      "kind": "Grouping",
-      "description": "Coordenada X del objeto (0-940). Usar columna, no medida."
-    },
-    {
-      "displayName": "Layout Y",
-      "name": "layoutY",
-      "kind": "Grouping",
-      "description": "Coordenada Y del objeto (0-480). Usar columna, no medida."
-    },
-    {
-      "displayName": "Layout W",
-      "name": "layoutW",
-      "kind": "Grouping",
-      "description": "Ancho del objeto en pixeles."
-    },
-    {
-      "displayName": "Layout H",
-      "name": "layoutH",
-      "kind": "Grouping",
-      "description": "Alto del objeto en pixeles."
-    }
-  ],
-  "objects": {
-    "reglas": {
-      "displayName": "Reglas de Color",
-      "properties": {
-        "reglasJson": {
-          "displayName": "Reglas (JSON)",
-          "type": {
-            "text": true
-          }
-        }
-      }
-    },
-    "general": {
-      "displayName": "General",
-      "properties": {
-        "mostrarEtiqueta": {
-          "displayName": "Mostrar etiqueta",
-          "type": {
-            "bool": true
-          }
+    "dataRoles": [
+        {
+            "displayName": "Object ID",
+            "name": "invernadero",
+            "kind": "Grouping",
+            "description": "Unique identifier for each object on the canvas (e.g. A01, Table-12, Seat-05)"
         },
-        "mostrarValor": {
-          "displayName": "Mostrar valor principal",
-          "type": {
-            "bool": true
-          }
+        {
+            "displayName": "Label",
+            "name": "etiqueta",
+            "kind": "Grouping",
+            "description": "Display name shown inside each object. Defaults to Object ID if not set."
         },
-        "colorFallback": {
-          "displayName": "Color sin regla",
-          "type": {
-            "fill": {
-              "solid": {
-                "color": true
-              }
-            }
-          }
-        }
-      }
-    }
-  },
-  "dataViewMappings": [
-    {
-      "categorical": {
-        "categories": {
-          "select": [
-            {
-              "bind": {
-                "to": "invernadero"
-              }
-            },
-            {
-              "bind": {
-                "to": "etiqueta"
-              }
-            },
-            {
-              "bind": {
-                "to": "campoTexto1"
-              }
-            },
-            {
-              "bind": {
-                "to": "campoTexto2"
-              }
-            },
-            {
-              "bind": {
-                "to": "layoutX"
-              }
-            },
-            {
-              "bind": {
-                "to": "layoutY"
-              }
-            },
-            {
-              "bind": {
-                "to": "layoutW"
-              }
-            },
-            {
-              "bind": {
-                "to": "layoutH"
-              }
-            }
-          ],
-          "dataReductionAlgorithm": {
-            "top": {
-              "count": 1000
-            }
-          }
+        {
+            "displayName": "Main Value",
+            "name": "valorPrincipal",
+            "kind": "Measure",
+            "description": "Primary numeric measure. Used for the fill bar (0\u2013100 = percentage)."
         },
-        "values": {
-          "select": [
-            {
-              "bind": {
-                "to": "valorPrincipal"
-              }
-            },
-            {
-              "bind": {
-                "to": "valor2"
-              }
-            },
-            {
-              "bind": {
-                "to": "valor3"
-              }
-            },
-            {
-              "bind": {
-                "to": "tooltipExtra"
-              }
-            }
-          ]
+        {
+            "displayName": "Text Field 1",
+            "name": "campoTexto1",
+            "kind": "Grouping",
+            "description": "Categorical field for color rules (e.g. Status, State, Category)"
+        },
+        {
+            "displayName": "Text Field 2",
+            "name": "campoTexto2",
+            "kind": "Grouping",
+            "description": "Secondary categorical field"
+        },
+        {
+            "displayName": "Value 2",
+            "name": "valor2",
+            "kind": "Measure",
+            "description": "Secondary numeric measure shown in tooltip"
+        },
+        {
+            "displayName": "Value 3",
+            "name": "valor3",
+            "kind": "Measure",
+            "description": "Tertiary numeric measure shown in tooltip"
+        },
+        {
+            "displayName": "Tooltip Extra",
+            "name": "tooltipExtra",
+            "kind": "Measure",
+            "description": "Additional numeric value shown in tooltip"
+        },
+        {
+            "displayName": "Layout X",
+            "name": "layoutX",
+            "kind": "Grouping",
+            "description": "Horizontal position on canvas (0 to Canvas_W). Set column to Don't Summarize."
+        },
+        {
+            "displayName": "Layout Y",
+            "name": "layoutY",
+            "kind": "Grouping",
+            "description": "Vertical position on canvas (0 to Canvas_H). Set column to Don't Summarize."
+        },
+        {
+            "displayName": "Layout W",
+            "name": "layoutW",
+            "kind": "Grouping",
+            "description": "Object width in pixels. Set column to Don't Summarize."
+        },
+        {
+            "displayName": "Layout H",
+            "name": "layoutH",
+            "kind": "Grouping",
+            "description": "Object height in pixels. Set column to Don't Summarize."
         }
-      }
-    }
-  ],
-  "privileges": []
+    ],
+    "objects": {
+        "reglas": {
+            "displayName": "Color Rules",
+            "properties": {
+                "reglasJson": {
+                    "displayName": "Rules (JSON)",
+                    "description": "Color rules definition. Edit via the built-in rules editor.",
+                    "type": {
+                        "text": true
+                    }
+                }
+            }
+        },
+        "general": {
+            "displayName": "General",
+            "properties": {
+                "mostrarEtiqueta": {
+                    "displayName": "Show label",
+                    "type": {
+                        "bool": true
+                    }
+                },
+                "mostrarValor": {
+                    "displayName": "Show main value",
+                    "type": {
+                        "bool": true
+                    }
+                },
+                "colorFallback": {
+                    "displayName": "Default color",
+                    "description": "Color used when no rule matches",
+                    "type": {
+                        "fill": {
+                            "solid": {
+                                "color": true
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    },
+    "dataViewMappings": [
+        {
+            "categorical": {
+                "categories": {
+                    "select": [
+                        {
+                            "bind": {
+                                "to": "invernadero"
+                            }
+                        },
+                        {
+                            "bind": {
+                                "to": "etiqueta"
+                            }
+                        },
+                        {
+                            "bind": {
+                                "to": "campoTexto1"
+                            }
+                        },
+                        {
+                            "bind": {
+                                "to": "campoTexto2"
+                            }
+                        },
+                        {
+                            "bind": {
+                                "to": "layoutX"
+                            }
+                        },
+                        {
+                            "bind": {
+                                "to": "layoutY"
+                            }
+                        },
+                        {
+                            "bind": {
+                                "to": "layoutW"
+                            }
+                        },
+                        {
+                            "bind": {
+                                "to": "layoutH"
+                            }
+                        }
+                    ],
+                    "dataReductionAlgorithm": {
+                        "top": {
+                            "count": 1000
+                        }
+                    }
+                },
+                "values": {
+                    "select": [
+                        {
+                            "bind": {
+                                "to": "valorPrincipal"
+                            }
+                        },
+                        {
+                            "bind": {
+                                "to": "valor2"
+                            }
+                        },
+                        {
+                            "bind": {
+                                "to": "valor3"
+                            }
+                        },
+                        {
+                            "bind": {
+                                "to": "tooltipExtra"
+                            }
+                        }
+                    ]
+                }
+            }
+        }
+    ],
+    "privileges": []
 }
