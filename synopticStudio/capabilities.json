@@ -53,6 +53,24 @@
             "name": "layoutH",
             "kind": "Grouping",
             "description": "Object height in pixels. Set column to Don't Summarize."
+        },
+        {
+            "displayName": "Canvas Width",
+            "name": "canvasW",
+            "kind": "Grouping",
+            "description": "Original canvas width from the editor (Canvas_W). Set column to Don't Summarize. Used for accurate aspect ratio."
+        },
+        {
+            "displayName": "Canvas Height",
+            "name": "canvasH",
+            "kind": "Grouping",
+            "description": "Original canvas height from the editor (Canvas_H). Set column to Don't Summarize. Used for accurate aspect ratio."
+        },
+        {
+            "displayName": "Background Image URL",
+            "name": "imageUrl",
+            "kind": "Grouping",
+            "description": "Public URL of the background image (Image_URL column). Optional — when present, the visual renders the image behind the objects."
         }
     ],
     "objects": {
@@ -100,6 +118,13 @@
                     "type": {
                         "numeric": true
                     }
+                },
+                "backgroundOpacity": {
+                    "displayName": "Background image opacity",
+                    "description": "How visible the background image is behind the shapes (0-100). Lower values let the rule colors stand out more.",
+                    "type": {
+                        "numeric": true
+                    }
                 }
             }
         }
@@ -117,7 +142,10 @@
                         { "bind": { "to": "layoutX" } },
                         { "bind": { "to": "layoutY" } },
                         { "bind": { "to": "layoutW" } },
-                        { "bind": { "to": "layoutH" } }
+                        { "bind": { "to": "layoutH" } },
+                        { "bind": { "to": "canvasW" } },
+                        { "bind": { "to": "canvasH" } },
+                        { "bind": { "to": "imageUrl" } }
                     ],
                     "dataReductionAlgorithm": {
                         "window": {

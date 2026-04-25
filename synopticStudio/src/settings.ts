@@ -57,13 +57,24 @@ class GeneralCard extends FormattingSettingsCard {
         value: 180,
         visible: false,
     });
-
+ 
+    // User-controlled opacity for the background image (0-100).
+    // Lower values make the rule colors stand out more; higher values
+    // emphasize the picture. 50 is a balanced default.
+    backgroundOpacity = new formattingSettings.NumUpDown({
+        name: "backgroundOpacity",
+        displayName: "Background image opacity",
+        description: "How visible the background image is behind the shapes (0-100). Lower values let the rule colors stand out more.",
+        value: 50,
+    });
+ 
     name:        string = "general";
     displayName: string = "General";
     slices: Array<FormattingSettingsSlice> = [
         this.mostrarEtiqueta,
         this.mostrarValor,
         this.colorFallback,
+        this.backgroundOpacity,
         this.rotation,
     ];
 }

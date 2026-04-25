@@ -40,6 +40,16 @@ interface SynopticObject {
     layoutY?:       number;
     layoutW?:       number;
     layoutH?:       number;
+    // Editor-provided canvas dimensions (Canvas_W / Canvas_H columns).
+    // When present, the visual uses these for fit-scale instead of the
+    // bounding box of the objects — preserves the original aspect ratio
+    // of the design canvas (e.g. 1920x1080) so shapes don't get stretched
+    // when objects only occupy part of the frame.
+    canvasW?:       number;
+    canvasH?:       number;
+    // Optional URL of the background image. When present, the visual
+    // renders the image beneath the shapes (and rotates with them).
+    imageUrl?:      string;
     // All extra fields the user dropped in the Tooltip Fields bucket,
     // already merged from categories + values and sorted in user order.
     tooltipFields:  TooltipField[];
@@ -796,10 +806,9 @@ export class Visual implements IVisual {
     private panX     = 0;
     private panY     = 0;
     private zoomLevel= 1.0;
-    // Rotation is stored in INTERNAL degrees (math space).
-    // The UI labels use DISPLAY degrees where 0° = natural orientation of this layout.
-    // Conversion: internal = (display + 180) % 360   |   display = (internal + 180) % 360
-    private rotation = 180; // internal 180 = display 0° (natural orientation)
+    // Rotation in degrees. 0° = no rotation = the layout/image as authored
+    // in the editor. Buttons map 1:1 to this value.
+    private rotation = 0;
     // True once we've read the persisted rotation from PBI on first update().
     // Prevents subsequent updates (re-renders, resizes, filter changes) from
     // overwriting the user's in-session rotation choice.
@@ -817,6 +826,7 @@ export class Visual implements IVisual {
     private fallback     = "#4a5560";
     private showLabel    = true;
     private showValue    = true;
+    private bgOpacity    = 0.5;       // 0..1 — applied to background image
     private vpW          = 0;
     private vpH          = 0;
     // Hint banner state machine:
@@ -956,8 +966,7 @@ export class Visual implements IVisual {
         rotLabel.textContent="Rotate:";
         ctrlWrap.appendChild(rotLabel);
 
-        [0,90,180,270].forEach(displayDeg=>{
-            const internalDeg = (displayDeg + 180) % 360;
+        [0,90,180,270].forEach(deg=>{
             const rb=mk("button",{
                 fontFamily:"'Segoe UI',sans-serif",fontSize:"9px",
                 padding:"2px 8px",background:CLR.card,
@@ -965,11 +974,11 @@ export class Visual implements IVisual {
                 borderRadius:"3px",cursor:"pointer",marginLeft:"2px",
                 fontWeight:"500",
             });
-            rb.textContent=`${displayDeg}°`;
-            rb.id=`rot-btn-${internalDeg}`;
+            rb.textContent=`${deg}°`;
+            rb.id=`rot-btn-${deg}`;
             rb.addEventListener("click",(e)=>{
                 e.stopPropagation();
-                this.rotation=internalDeg;
+                this.rotation=deg;
                 this.panX=0; this.panY=0; this.zoomLevel=1.0;
                 // Re-draw to recalculate fit-scale for the new rotation
                 this.draw();
@@ -1026,7 +1035,7 @@ export class Visual implements IVisual {
         resetBtn.title="Reset view (zoom, pan, rotation)";
         resetBtn.addEventListener("click",(e)=>{
             e.stopPropagation();
-            this.panX=0; this.panY=0; this.zoomLevel=1.0; this.rotation=180;
+            this.panX=0; this.panY=0; this.zoomLevel=1.0; this.rotation=0;
             // Re-draw to recalculate fit-scale for the reset rotation
             this.draw();
             this.drawCompassRotated();
@@ -1120,7 +1129,13 @@ export class Visual implements IVisual {
         if (!this.rotationLoaded) {
             const persistedRot = this.fmtSettings.generalCard.rotation.value;
             if (typeof persistedRot === "number" && !isNaN(persistedRot)) {
-                // Normalize to one of {0, 90, 180, 270}; reject anything else
+                // Legacy: older versions persisted rotation in the "internal"
+                // coordinate system where 180 meant "natural / 0°" and the
+                // displayed degrees were offset by 180. Reports authored under
+                // that scheme have rotation:180 saved even when the user
+                // clicked "0°". To honor backward compatibility, we keep
+                // accepting that value as-is — the user can click Reset (or
+                // the 0° button) to migrate to the clean coordinate system.
                 const norm = ((persistedRot % 360) + 360) % 360;
                 if (norm === 0 || norm === 90 || norm === 180 || norm === 270) {
                     this.rotation = norm;
@@ -1132,7 +1147,11 @@ export class Visual implements IVisual {
         this.fallback  =this.fmtSettings.generalCard.colorFallback.value.value||"#4a5560";
         this.showLabel =this.fmtSettings.generalCard.mostrarEtiqueta.value;
         this.showValue =this.fmtSettings.generalCard.mostrarValor.value;
-
+        // Background image opacity — value is 0-100 in settings, normalize to 0-1
+        const rawBgOp = this.fmtSettings.generalCard.backgroundOpacity.value;
+        this.bgOpacity = (typeof rawBgOp === "number" && !isNaN(rawBgOp))
+            ? Math.max(0, Math.min(1, rawBgOp / 100))
+            : 0.5;
         const dv = options.dataViews?.[0];
         if (!dv?.table?.rows?.length || !dv.table.columns?.length) {
             this.drawEmpty();
@@ -1252,6 +1271,9 @@ export class Visual implements IVisual {
                 layoutY:        layoutAt("layoutY", i),
                 layoutW:        layoutAt("layoutW", i),
                 layoutH:        layoutAt("layoutH", i),
+                canvasW:        layoutAt("canvasW", i),
+                canvasH:        layoutAt("canvasH", i),
+                imageUrl:       strAt("imageUrl", i),
                 tooltipFields:  merged,
                 selectionId,
             });
@@ -1324,19 +1346,42 @@ export class Visual implements IVisual {
         const objectsMissingLayout = this.objects.length - objectsWithLayout.length;
         const hasFixed = objectsWithLayout.length > 0;
 
-        let layout: Cell[];
+         let layout: Cell[];
+        // bgRect parameters — populated when fixed layout is in use, used to
+        // render the background image inside the transformGroup further down.
+        let bgRectX = 0, bgRectY = 0, bgRectW = 0, bgRectH = 0;
         if (hasFixed) {
-            // Source bounding box in layout coordinates — only count objects with
-            // valid coordinates. Objects without layouts are skipped from rendering.
-            const srcW = Math.max(...objectsWithLayout.map(o =>
-                (o.layoutX as number) + ((o.layoutW as number | undefined) ?? 22)));
-            const srcH = Math.max(...objectsWithLayout.map(o =>
-                (o.layoutY as number) + ((o.layoutH as number | undefined) ?? 46)));
-
+            // Detect editor-provided canvas dimensions (Canvas_W, Canvas_H columns).
+            // When present, use them as the source frame for fit-scale — this
+            // preserves the original aspect ratio of the design canvas instead of
+            // collapsing to the objects' bounding box (which stretches shapes when
+            // objects don't fill the frame).
+            const editorCW = objectsWithLayout[0].canvasW;
+            const editorCH = objectsWithLayout[0].canvasH;
+            const useEditorCanvas = typeof editorCW === "number" && editorCW > 0
+                                 && typeof editorCH === "number" && editorCH > 0;
+ 
+            // The editor exports coordinates as relative percentages 0..100.
+            // We must scale them up to the editor's canvas pixel space before
+            // computing fit, so the relative numbers turn into proportional
+            // positions inside the canvas frame.
+            const cW = useEditorCanvas ? (editorCW as number) : 1;
+            const cH = useEditorCanvas ? (editorCH as number) : 1;
+ 
+            // Source bounding box. With editor canvas, srcW/H are the canvas
+            // dimensions themselves — the full design frame. Without editor
+            // canvas (legacy data), fall back to the objects' bounding box.
+            const srcW = useEditorCanvas
+                ? cW
+                : Math.max(...objectsWithLayout.map(o =>
+                    (o.layoutX as number) + ((o.layoutW as number | undefined) ?? 22)));
+            const srcH = useEditorCanvas
+                ? cH
+                : Math.max(...objectsWithLayout.map(o =>
+                    (o.layoutY as number) + ((o.layoutH as number | undefined) ?? 46)));
+ 
             // Rotation-aware fit: at 90°/270° the visible bounding box on screen
-            // has W and H swapped, so we need to fit srcH against W and srcW
-            // against H. Without this, rotating the map causes content to spill
-            // past the viewport edges (looks like a zoom-out / zoom-in jump).
+            // has W and H swapped.
             const norm = ((this.rotation % 360) + 360) % 360;
             const swapped = (norm === 90 || norm === 270);
             const fitW = swapped ? srcH : srcW;
@@ -1344,23 +1389,65 @@ export class Visual implements IVisual {
             const scaleX = W / Math.max(fitW, 1);
             const scaleY = H / Math.max(fitH, 1);
             const scale  = Math.min(scaleX, scaleY) * 0.96;
-
-            // Center using ORIGINAL dimensions — the rotation transform pivots
-            // around viewport center, so center the unrotated layout on that pivot.
+ 
+            // Center using ORIGINAL dimensions
             const offX = (W - srcW * scale) / 2;
             const offY = (H - srcH * scale) / 2;
-            layout = objectsWithLayout.map(o => ({
-                id: o.id,
-                x:  Math.round((o.layoutX as number) * scale + offX),
-                y:  Math.round((o.layoutY as number) * scale + offY),
-                w:  Math.round(((o.layoutW as number | undefined) ?? 22) * scale),
-                h:  Math.round(((o.layoutH as number | undefined) ?? 46) * scale),
-            }));
+ 
+            // Save the bgRect frame for the background image renderer further down
+            bgRectX = offX;
+            bgRectY = offY;
+            bgRectW = srcW * scale;
+            bgRectH = srcH * scale;
+ 
+            // Build layout cells. If using editor canvas, multiply relative coords
+            // (0..100 percentages) by canvas dimensions to get pixel positions
+            // inside the design frame, then apply fit-scale.
+            layout = objectsWithLayout.map(o => {
+                const rawX = o.layoutX as number;
+                const rawY = o.layoutY as number;
+                const rawW = (o.layoutW as number | undefined) ?? 22;
+                const rawH = (o.layoutH as number | undefined) ?? 46;
+                // If editor canvas is present, treat coords as 0..100 relative.
+                // Otherwise, treat them as already in pixel/grid units.
+                const px = useEditorCanvas ? (rawX / 100) * cW : rawX;
+                const py = useEditorCanvas ? (rawY / 100) * cH : rawY;
+                const pw = useEditorCanvas ? (rawW / 100) * cW : rawW;
+                const ph = useEditorCanvas ? (rawH / 100) * cH : rawH;
+                return {
+                    id: o.id,
+                    x:  Math.round(px * scale + offX),
+                    y:  Math.round(py * scale + offY),
+                    w:  Math.round(pw * scale),
+                    h:  Math.round(ph * scale),
+                };
+            });
         } else {
             layout = autoLayout(this.objects.map(o=>o.id),W,H);
         }
         const cm: Record<string,Cell>={};
         layout.forEach(c=>cm[c.id]=c);
+ 
+        // ── Background image ────────────────────────────────────────────────
+        // If any object carries an Image_URL, render the image inside the
+        // transformGroup (so it rotates with the shapes) BEFORE the shapes,
+        // so they sit on top of it. The image uses the bgRect frame computed
+        // from Canvas_W/H above.
+        const imgUrl = this.objects.find(o => o.imageUrl)?.imageUrl;
+        if (imgUrl && bgRectW > 0 && bgRectH > 0) {
+            const img = svgEl("image", {
+                href: imgUrl,
+                "xlink:href": imgUrl,  // legacy compat
+                x:      String(bgRectX),
+                y:      String(bgRectY),
+                width:  String(bgRectW),
+                height: String(bgRectH),
+                preserveAspectRatio: "none",
+                opacity: String(this.bgOpacity),
+            });
+            img.setAttribute("pointer-events", "none");
+            tg.appendChild(img);
+        }
 
         // Surface the hint banner when Main Value is bound AS AN AGGREGATED measure
         // (e.g. "Sum of X", "Avg of X"). When aggregated, PBI may filter rows where
@@ -1635,15 +1722,14 @@ export class Visual implements IVisual {
         if(this.labelsGroup) this.labelsGroup.setAttribute("transform", tUpright);
         if(this.fillLayer)   this.fillLayer.setAttribute("transform", tUpright);
 
-        // Update rotation button styles (buttons indexed by internal rotation)
-        [0,90,180,270].forEach(displayDeg=>{
-            const internalDeg = (displayDeg + 180) % 360;
-            const btn = this.target.querySelector(`#rot-btn-${internalDeg}`) as HTMLElement;
+        // Update rotation button styles — button id matches its rotation degrees
+        [0,90,180,270].forEach(deg=>{
+            const btn = this.target.querySelector(`#rot-btn-${deg}`) as HTMLElement;
             if(btn){
-                btn.style.color        = this.rotation===internalDeg ? "#07090a" : CLR.text;
-                btn.style.borderColor  = this.rotation===internalDeg ? CLR.green : CLR.border;
-                btn.style.background   = this.rotation===internalDeg ? CLR.green : CLR.card;
-                btn.style.fontWeight   = this.rotation===internalDeg ? "700"     : "500";
+                btn.style.color        = this.rotation===deg ? "#07090a" : CLR.text;
+                btn.style.borderColor  = this.rotation===deg ? CLR.green : CLR.border;
+                btn.style.background   = this.rotation===deg ? CLR.green : CLR.card;
+                btn.style.fontWeight   = this.rotation===deg ? "700"     : "500";
             }
         });
 
