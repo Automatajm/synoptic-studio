@@ -16,37 +16,25 @@
             "displayName": "Main Value",
             "name": "valorPrincipal",
             "kind": "Measure",
-            "description": "Primary numeric measure. Used for the fill bar (0\u2013100 = percentage)."
+            "description": "Primary numeric measure. Drives the fill bar (0-100 = percentage). Optional — leave empty for status-only visuals."
         },
         {
             "displayName": "Text Field 1",
             "name": "campoTexto1",
             "kind": "Grouping",
-            "description": "Categorical field for color rules (e.g. Status, State, Category)"
+            "description": "Categorical field used by color rules (e.g. Status, State, Category)"
         },
         {
-            "displayName": "Text Field 2",
-            "name": "campoTexto2",
+            "displayName": "Tooltip Numbers",
+            "name": "tooltipNumbers",
+            "kind": "Measure",
+            "description": "Additional numeric measures to show in the tooltip. Drag multiple measures here."
+        },
+        {
+            "displayName": "Tooltip Text",
+            "name": "tooltipText",
             "kind": "Grouping",
-            "description": "Secondary categorical field"
-        },
-        {
-            "displayName": "Value 2",
-            "name": "valor2",
-            "kind": "Measure",
-            "description": "Secondary numeric measure shown in tooltip"
-        },
-        {
-            "displayName": "Value 3",
-            "name": "valor3",
-            "kind": "Measure",
-            "description": "Tertiary numeric measure shown in tooltip"
-        },
-        {
-            "displayName": "Tooltip Extra",
-            "name": "tooltipExtra",
-            "kind": "Measure",
-            "description": "Additional numeric value shown in tooltip"
+            "description": "Additional text fields to show in the tooltip. Drag multiple fields here."
         },
         {
             "displayName": "Layout X",
@@ -79,7 +67,7 @@
             "properties": {
                 "reglasJson": {
                     "displayName": "Rules (JSON)",
-                    "description": "Color rules definition. Edit via the built-in rules editor.",
+                    "description": "Internal: color-rule definitions. Edit via the built-in Rules editor (gear icon).",
                     "type": {
                         "text": true
                     }
@@ -120,46 +108,14 @@
             "categorical": {
                 "categories": {
                     "select": [
-                        {
-                            "bind": {
-                                "to": "invernadero"
-                            }
-                        },
-                        {
-                            "bind": {
-                                "to": "etiqueta"
-                            }
-                        },
-                        {
-                            "bind": {
-                                "to": "campoTexto1"
-                            }
-                        },
-                        {
-                            "bind": {
-                                "to": "campoTexto2"
-                            }
-                        },
-                        {
-                            "bind": {
-                                "to": "layoutX"
-                            }
-                        },
-                        {
-                            "bind": {
-                                "to": "layoutY"
-                            }
-                        },
-                        {
-                            "bind": {
-                                "to": "layoutW"
-                            }
-                        },
-                        {
-                            "bind": {
-                                "to": "layoutH"
-                            }
-                        }
+                        { "bind": { "to": "invernadero" } },
+                        { "bind": { "to": "etiqueta" } },
+                        { "bind": { "to": "campoTexto1" } },
+                        { "for":  { "in": "tooltipText" } },
+                        { "bind": { "to": "layoutX" } },
+                        { "bind": { "to": "layoutY" } },
+                        { "bind": { "to": "layoutW" } },
+                        { "bind": { "to": "layoutH" } }
                     ],
                     "dataReductionAlgorithm": {
                         "top": {
@@ -169,26 +125,8 @@
                 },
                 "values": {
                     "select": [
-                        {
-                            "bind": {
-                                "to": "valorPrincipal"
-                            }
-                        },
-                        {
-                            "bind": {
-                                "to": "valor2"
-                            }
-                        },
-                        {
-                            "bind": {
-                                "to": "valor3"
-                            }
-                        },
-                        {
-                            "bind": {
-                                "to": "tooltipExtra"
-                            }
-                        }
+                        { "bind": { "to": "valorPrincipal" } },
+                        { "for":  { "in": "tooltipNumbers" } }
                     ]
                 }
             }

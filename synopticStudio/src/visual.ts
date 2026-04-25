@@ -24,19 +24,24 @@ interface ColorRule {
     enabled: boolean;
 }
 
+interface TooltipField {
+    name:  string;
+    value: string;
+    isNumeric: boolean;
+}
+
 interface SynopticObject {
     id:             string;
     label:          string;
     valorPrincipal?: number;
     campoTexto1?:   string;
-    campoTexto2?:   string;
-    valor2?:        number;
-    valor3?:        number;
-    tooltipExtra?:  number;
     layoutX?:       number;
     layoutY?:       number;
     layoutW?:       number;
     layoutH?:       number;
+    // Extra tooltip data — now arrays so users can add as many fields as they want
+    tooltipNumbers: TooltipField[];
+    tooltipTexts:   TooltipField[];
     selectionId:    ISelectionId;
 }
 
@@ -120,6 +125,54 @@ function readableOn(hex: string, bgHex = "#07090a", alpha = 0.35,
     // WCAG relative luminance on the blended color
     const lum = 0.2126*mr + 0.7152*mg + 0.0722*mb;
     return lum >= 0.55 ? darkTxt : lightTxt;
+}
+
+/**
+ * Cosmetic cleanup for column display names.
+ * Strips common PBI aggregator prefixes ("Sum of ", "Avg of ", etc.),
+ * replaces underscores with spaces, and capitalizes the first letter.
+ * If the user has explicitly renamed the column ("Rename for this visual"),
+ * Power BI passes that custom name through, and our cleanup is gentle enough
+ * to leave it intact.
+ */
+function cleanFieldName(name: string): string {
+    if (!name) return "";
+    let out = String(name);
+    // Strip common aggregator prefixes (case-insensitive)
+    const prefixes = [
+        /^Sum of\s+/i, /^Average of\s+/i, /^Avg of\s+/i, /^Max of\s+/i,
+        /^Min of\s+/i, /^Count of\s+/i, /^Count\s+/i,
+        /^Distinct count of\s+/i, /^Median of\s+/i, /^Variance of\s+/i,
+        /^Std dev of\s+/i, /^First\s+/i, /^Last\s+/i,
+    ];
+    for (const re of prefixes) out = out.replace(re, "");
+    // Replace separators with spaces
+    out = out.replace(/[_]+/g, " ").replace(/\s+/g, " ").trim();
+    // Capitalize first letter only (don't title-case — preserves intentional casing)
+    if (out.length > 0) out = out.charAt(0).toUpperCase() + out.slice(1);
+    return out;
+}
+
+/**
+ * Format a value for tooltip display.
+ *  - Numbers: thousand separators, up to 2 decimal places when fractional
+ *  - Dates: locale short format
+ *  - Strings: as-is
+ *  - null/undefined: empty string
+ */
+function formatTooltipValue(v: unknown): string {
+    if (v === null || v === undefined) return "";
+    if (v instanceof Date) {
+        try { return v.toLocaleDateString(); } catch { return String(v); }
+    }
+    if (typeof v === "number") {
+        if (!isFinite(v)) return "";
+        const isInt = Number.isInteger(v);
+        return isInt
+            ? v.toLocaleString("en-US")
+            : v.toLocaleString("en-US", { maximumFractionDigits: 2 });
+    }
+    return String(v);
 }
 
 function mk(tag: string, css?: Partial<CSSStyleDeclaration>): HTMLElement {
@@ -206,8 +259,8 @@ function parseBetween(value: string, value2?: string): [number, number] | null {
 
 function evalRule(rule: ColorRule, obj: SynopticObject): boolean {
     const map: Record<string,string|number|undefined> = {
-        campoTexto1:obj.campoTexto1, campoTexto2:obj.campoTexto2,
-        valorPrincipal:obj.valorPrincipal, valor2:obj.valor2, valor3:obj.valor3,
+        campoTexto1:    obj.campoTexto1,
+        valorPrincipal: obj.valorPrincipal,
     };
     const raw = map[rule.field];
     if (raw === undefined || raw === null) return false;
@@ -254,18 +307,17 @@ function autoLayout(ids: string[], W: number, H: number): Cell[] {
 
 // ── Tooltip ───────────────────────────────────────────────────────────────────
 function buildTooltip(obj: SynopticObject, color: string, ruleLabel: string,
-                      fn: Record<string,string>): HTMLElement {
+                      mainValName: string): HTMLElement {
     const wrap = mk("div",{
         background:CLR.panel, border:`1px solid ${color}66`, borderRadius:"10px",
-        padding:"13px 16px", minWidth:"200px", fontFamily:"'Segoe UI',sans-serif",
+        padding:"13px 16px", minWidth:"200px", maxWidth:"320px",
+        fontFamily:"'Segoe UI',sans-serif",
         boxShadow:"0 10px 32px rgba(0,0,0,.55)", pointerEvents:"none",
     });
     const hdr = mk("div",{display:"flex",justifyContent:"space-between",
                            alignItems:"center",marginBottom:"10px",gap:"10px"});
     const ttl = mk("div",{color:color,fontWeight:"700",fontSize:"14px",letterSpacing:".03em"});
     ttl.textContent = obj.label||obj.id;
-    // Badge: solid background of the rule color, text picked for contrast against that
-    // bg — readable in every theme and every rule color.
     const badgeTxt = readableOn(color, CLR.panel, 1);
     const bdg = mk("span",{
         background:color, border:"none",
@@ -277,24 +329,44 @@ function buildTooltip(obj: SynopticObject, color: string, ruleLabel: string,
     hdr.appendChild(ttl); hdr.appendChild(bdg); wrap.appendChild(hdr);
 
     const tbl = mk("table",{borderCollapse:"collapse",width:"100%"});
-    const row = (lbl: string, val: string|number|undefined) => {
-        if (val===undefined||val===null) return;
-        const tr=mk("tr"), td1=mk("td",{color:CLR.dim,fontSize:"10px",
+    const addRow = (lbl: string, val: string, isNumeric: boolean) => {
+        if (!val) return;
+        const tr = mk("tr");
+        const td1 = mk("td",{
+            color:CLR.dim,fontSize:"10px",
             textTransform:"uppercase",letterSpacing:".06em",fontWeight:"600",
-            padding:"3px 12px 3px 0",whiteSpace:"nowrap"}),
-        td2=mk("td",{color:CLR.text,fontSize:"11px",fontWeight:"600",padding:"3px 0"});
-        td1.textContent=lbl; td2.textContent=String(val);
+            padding:"3px 12px 3px 0",whiteSpace:"nowrap",
+            verticalAlign:"top",
+        });
+        const td2 = mk("td",{
+            color:CLR.text,fontSize:"11px",fontWeight:"600",padding:"3px 0",
+            textAlign: isNumeric ? "right" : "left",
+            verticalAlign:"top",
+        });
+        td1.textContent = lbl;
+        td2.textContent = val;
         tr.appendChild(td1); tr.appendChild(td2); tbl.appendChild(tr);
     };
-    if (obj.valorPrincipal!==undefined)
-        row(fn["valorPrincipal"]||"Valor Principal",
-            typeof obj.valorPrincipal==="number"
-                ? obj.valorPrincipal.toLocaleString("es-DO") : obj.valorPrincipal);
-    if (obj.campoTexto1)  row(fn["campoTexto1"]||"Campo 1",  obj.campoTexto1);
-    if (obj.campoTexto2)  row(fn["campoTexto2"]||"Campo 2",  obj.campoTexto2);
-    if (obj.valor2!==undefined) row(fn["valor2"]||"Valor 2", obj.valor2.toLocaleString("es-DO"));
-    if (obj.valor3!==undefined) row(fn["valor3"]||"Valor 3", obj.valor3.toLocaleString("es-DO"));
-    if (obj.tooltipExtra!==undefined) row(fn["tooltipExtra"]||"Extra", obj.tooltipExtra.toLocaleString("es-DO"));
+
+    // Main Value first if present (it's the primary metric — drives the fill bar)
+    if (obj.valorPrincipal !== undefined && obj.valorPrincipal !== null) {
+        addRow(cleanFieldName(mainValName) || "Main Value",
+               formatTooltipValue(obj.valorPrincipal),
+               true);
+    }
+    // Text Field 1 next — the categorical field used by rules
+    if (obj.campoTexto1) {
+        addRow("Status", formatTooltipValue(obj.campoTexto1), false);
+    }
+    // Then user-added numeric tooltip fields, in order
+    for (const f of obj.tooltipNumbers) {
+        addRow(cleanFieldName(f.name), f.value, true);
+    }
+    // Then user-added text tooltip fields, in order
+    for (const f of obj.tooltipTexts) {
+        addRow(cleanFieldName(f.name), f.value, false);
+    }
+
     wrap.appendChild(tbl);
     return wrap;
 }
@@ -307,8 +379,8 @@ const OPS = [
     {k:"between",l:"between"},
 ];
 const FIELDS = [
-    {k:"campoTexto1",l:"Text Field 1"},{k:"campoTexto2",l:"Text Field 2"},
-    {k:"valorPrincipal",l:"Main Value"},{k:"valor2",l:"Value 2"},{k:"valor3",l:"Value 3"},
+    {k:"campoTexto1",   l:"Text Field 1"},
+    {k:"valorPrincipal",l:"Main Value"},
 ];
 
 class RulesEditor {
@@ -613,7 +685,7 @@ export class Visual implements IVisual {
     private textLayer:      SVGElement | null = null;
     private labelsGroup:    SVGElement | null = null;
     private fillLayer:      SVGElement | null = null;
-    private fieldNames:  Record<string,string> = {};
+    private mainValueName: string = "";
     private fallback     = "#52626a";
     private showLabel    = true;
     private showValue    = true;
@@ -894,33 +966,93 @@ export class Visual implements IVisual {
         const dv=options.dataViews?.[0];
         if(!dv?.categorical?.categories?.length){ this.drawEmpty(); return; }
 
-        const cats=dv.categorical.categories;
-        const vals=dv.categorical.values||[];
-        const ri: Record<string,number>={};
-        cats.forEach((c,i)=>{ if(c.source.roles) Object.keys(c.source.roles).forEach(r=>ri[r]=i); });
-        const vi: Record<string,number>={};
-        vals.forEach((v,i)=>{ if(v.source.roles) Object.keys(v.source.roles).forEach(r=>vi[r]=i); });
-        this.fieldNames={};
-        cats.forEach(c=>{ if(c.source.roles) Object.keys(c.source.roles).forEach(r=>this.fieldNames[r]=c.source.displayName); });
-        vals.forEach(v=>{ if(v.source.roles) Object.keys(v.source.roles).forEach(r=>this.fieldNames[r]=v.source.displayName); });
+        const cats = dv.categorical.categories;
+        const vals = dv.categorical.values || [];
 
-        const n=cats[0]?.values?.length||0;
-        this.objects=[];
-        for(let i=0;i<n;i++){
-            const gid =(role:string)=>ri[role]!==undefined?String(cats[ri[role]].values[i]??""):undefined;
-            const gval=(role:string)=>vi[role]!==undefined?Number(vals[vi[role]].values[i]??undefined):undefined;
-            const id=gid("invernadero")||String(i);
+        // Single-value role indices (the first occurrence wins)
+        const ri: Record<string, number> = {};
+        cats.forEach((c, i) => {
+            if (c.source.roles) Object.keys(c.source.roles).forEach(r => {
+                if (ri[r] === undefined) ri[r] = i;
+            });
+        });
+        const vi: Record<string, number> = {};
+        vals.forEach((v, i) => {
+            if (v.source.roles) Object.keys(v.source.roles).forEach(r => {
+                if (vi[r] === undefined) vi[r] = i;
+            });
+        });
+
+        // Multi-value role indices (collect ALL items with the role)
+        const tooltipTextIdx: number[] = [];
+        cats.forEach((c, i) => {
+            if (c.source.roles && c.source.roles["tooltipText"]) tooltipTextIdx.push(i);
+        });
+        const tooltipNumIdx: number[] = [];
+        vals.forEach((v, i) => {
+            if (v.source.roles && v.source.roles["tooltipNumbers"]) tooltipNumIdx.push(i);
+        });
+
+        // Capture display name of the Main Value column for the tooltip header row
+        this.mainValueName = vi["valorPrincipal"] !== undefined
+            ? vals[vi["valorPrincipal"]].source.displayName
+            : "";
+
+        // Get a single-value field by role (used for ID, label, layout, etc.)
+        const valueAt = (role: string, i: number): string|undefined =>
+            ri[role] !== undefined ? String(cats[ri[role]].values[i] ?? "") : undefined;
+        const numAt = (role: string, i: number): number|undefined => {
+            if (vi[role] === undefined) return undefined;
+            const raw = vals[vi[role]].values[i];
+            if (raw === null || raw === undefined) return undefined;
+            const n = Number(raw);
+            return isNaN(n) ? undefined : n;
+        };
+        const layoutAt = (role: string, i: number, fallback: number): number|undefined => {
+            if (ri[role] === undefined) return undefined;
+            const raw = cats[ri[role]].values[i];
+            const n = parseFloat(String(raw ?? fallback));
+            return isNaN(n) ? fallback : n;
+        };
+
+        const n = cats[0]?.values?.length || 0;
+        this.objects = [];
+        for (let i = 0; i < n; i++) {
+            const id = valueAt("invernadero", i) || String(i);
+
+            // Collect this row's tooltip extras
+            const tooltipNumbers: TooltipField[] = tooltipNumIdx.map(idx => {
+                const raw = vals[idx].values[i];
+                return {
+                    name:  vals[idx].source.displayName,
+                    value: formatTooltipValue(raw),
+                    isNumeric: true,
+                };
+            }).filter(f => f.value !== "");
+
+            const tooltipTexts: TooltipField[] = tooltipTextIdx.map(idx => {
+                const raw = cats[idx].values[i];
+                return {
+                    name:  cats[idx].source.displayName,
+                    value: formatTooltipValue(raw),
+                    isNumeric: false,
+                };
+            }).filter(f => f.value !== "");
+
             this.objects.push({
-                id, label:gid("etiqueta")||id,
-                valorPrincipal:gval("valorPrincipal"),
-                campoTexto1:gid("campoTexto1"), campoTexto2:gid("campoTexto2"),
-                valor2:gval("valor2"), valor3:gval("valor3"), tooltipExtra:gval("tooltipExtra"),
-                layoutX: ri["layoutX"] !== undefined ? parseFloat(String(cats[ri["layoutX"]].values[i] ?? "0")) : undefined,
-                layoutY: ri["layoutY"] !== undefined ? parseFloat(String(cats[ri["layoutY"]].values[i] ?? "0")) : undefined,
-                layoutW: ri["layoutW"] !== undefined ? parseFloat(String(cats[ri["layoutW"]].values[i] ?? "22")) : undefined,
-                layoutH: ri["layoutH"] !== undefined ? parseFloat(String(cats[ri["layoutH"]].values[i] ?? "46")) : undefined,
-                selectionId:this.host.createSelectionIdBuilder()
-                    .withCategory(cats[ri["invernadero"]??0],i).createSelectionId(),
+                id,
+                label:          valueAt("etiqueta", i) || id,
+                valorPrincipal: numAt("valorPrincipal", i),
+                campoTexto1:    valueAt("campoTexto1", i),
+                layoutX:        layoutAt("layoutX", i, 0),
+                layoutY:        layoutAt("layoutY", i, 0),
+                layoutW:        layoutAt("layoutW", i, 22),
+                layoutH:        layoutAt("layoutH", i, 46),
+                tooltipNumbers,
+                tooltipTexts,
+                selectionId: this.host.createSelectionIdBuilder()
+                    .withCategory(cats[ri["invernadero"] ?? 0], i)
+                    .createSelectionId(),
             });
         }
         this.draw(); this.drawLegend();
@@ -1039,15 +1171,9 @@ export class Visual implements IVisual {
                 g.setAttribute("data-pct", hasMainVal
                     ? String(Math.min(obj.valorPrincipal as number, 100) / 100)
                     : "1");
-                // Secondary inline fields — text1 (categorical) and val2 (secondary measure)
+                // Inline secondary field — text1 (categorical) only.
+                // Tooltip Numbers / Tooltip Text are tooltip-only (not inline).
                 g.setAttribute("data-txt1", obj.campoTexto1 ? String(obj.campoTexto1) : "");
-                g.setAttribute("data-val2", obj.valor2!==undefined && obj.valor2!==null
-                    ? (typeof obj.valor2==="number"
-                        ? (Math.abs(obj.valor2) >= 1000
-                            ? obj.valor2.toLocaleString("en-US")
-                            : String(Math.round(obj.valor2 * 10) / 10))
-                        : String(obj.valor2))
-                    : "");
                 g.setAttribute("data-cx",  String(cell.x+cell.w/2));
                 g.setAttribute("data-cy",  String(cell.y+cell.h/2));
                 g.setAttribute("data-cw",  String(cell.w));
@@ -1067,7 +1193,7 @@ export class Visual implements IVisual {
             g.addEventListener("mouseenter",(e:MouseEvent)=>{
                 hr.setAttribute("opacity","0.7");
                 clearNode(this.tooltipDiv);
-                this.tooltipDiv.appendChild(buildTooltip(obj,color,rl,this.fieldNames));
+                this.tooltipDiv.appendChild(buildTooltip(obj,color,rl,this.mainValueName));
                 this.tooltipDiv.style.display="block";
                 this.positionTip(e);
             });
@@ -1286,11 +1412,9 @@ export class Visual implements IVisual {
                 const lbl = g2.getAttribute("data-lbl")||"";
                 const val = g2.getAttribute("data-val")||"";
                 const txt1 = g2.getAttribute("data-txt1")||"";
-                const val2 = g2.getAttribute("data-val2")||"";
                 const col = g2.getAttribute("data-col")||CLR.text;
                 const hasVal  = this.showValue && val  !== "";
                 const hasTxt1 = txt1 !== "";
-                const hasVal2 = val2 !== "";
 
                 // When rotated 90°/270°, the visible bounding box of the cell swaps W/H.
                 // The fill and labels are drawn axis-aligned in viewport space, so we
@@ -1368,10 +1492,12 @@ export class Visual implements IVisual {
                     // ═════════════════════════════════════════════════════════
                     // INLINE LAYOUT with 4-level progressive collapse
                     //
-                    // Level 4 (wide ≥160px):  Label │ Text1 │ Val2 │ MainVal
-                    // Level 3 (110–159px):    Label │ Text1 │ MainVal    (drop Val2)
-                    // Level 2 ( 75–109px):    Label │ MainVal            (drop Text1)
-                    // Level 1 ( <75px):       MainVal only (centered)
+                    // ═════════════════════════════════════════════════════════
+                    // INLINE LAYOUT with 3-level progressive collapse
+                    //
+                    // Level 3 (≥110px):  Label │ Text1 │ MainVal
+                    // Level 2 (75–109px): Label │ MainVal     (drop Text1)
+                    // Level 1 (<75px):    Label only (identity wins; tooltip has rest)
                     // ═════════════════════════════════════════════════════════
                     const yMid = center.y;
 
@@ -1380,15 +1506,13 @@ export class Visual implements IVisual {
 
                     // Pick collapse level
                     let level = 1;
-                    if      (effW >= 150 && hasTxt1 && hasVal2) level = 4;
-                    else if (effW >= 100 && hasTxt1)            level = 3;
-                    else if (effW >=  70)                       level = 2;
-                    else                                        level = 1;
+                    if      (effW >= 100 && hasTxt1) level = 3;
+                    else if (effW >=  70)            level = 2;
+                    else                             level = 1;
 
                     // Font sizes scale with cell height (so text fits vertically)
                     const fsLbl  = Math.max(5, Math.min(12, gch * 0.50));
                     const fsTxt  = Math.max(5, Math.min(10, gch * 0.38));
-                    const fsVal2 = Math.max(5, Math.min(10, gch * 0.40));
                     const fsVal  = Math.max(5, Math.min(11, gch * 0.46));
 
                     // Truncation per field (chars approx based on font vs field width)
@@ -1456,100 +1580,47 @@ export class Visual implements IVisual {
                             mkText(x3, yMid, val, fsVal, "800",
                                    valTxt, valHalo, 1.2, 0.35, "middle");
                         }
-                    } else {
-                        // Level 4 — all 4 fields: Label │ Text1 │ Val2 │ MainVal
-                        const x1 = center.x - gcw * 0.38;  // Label
-                        const x2 = center.x - gcw * 0.13;  // Text1
-                        const x3 = center.x + gcw * 0.13;  // Val2
-                        const x4 = center.x + gcw * 0.38;  // MainVal
-                        const sep1X = center.x - gcw * 0.25;
-                        const sep2X = center.x;
-                        const sep3X = center.x + gcw * 0.25;
-
-                        if (this.showLabel && lbl) {
-                            const maxC = Math.max(2, Math.floor((gcw * 0.22) / fsLbl * 1.6));
-                            mkText(x1, yMid, trunc(lbl, maxC), fsLbl, "700",
-                                   CLR.text, CLR.bg, 1.2, 0.5, "middle");
-                        }
-                        drawSep(sep1X);
-                        const maxCTxt = Math.max(2, Math.floor((gcw * 0.22) / fsTxt * 1.7));
-                        mkText(x2, yMid, trunc(txt1, maxCTxt), fsTxt, "500",
-                               CLR.dim, CLR.bg, 0.8, 0.35, "middle");
-                        drawSep(sep2X);
-                        const maxCVal2 = Math.max(2, Math.floor((gcw * 0.22) / fsVal2 * 1.7));
-                        mkText(x3, yMid, trunc(val2, maxCVal2), fsVal2, "600",
-                               CLR.text, CLR.bg, 1.0, 0.35, "middle");
-                        if (hasVal) {
-                            drawSep(sep3X);
-                            mkText(x4, yMid, val, fsVal, "800",
-                                   valTxt, valHalo, 1.2, 0.35, "middle");
-                        }
                     }
                 } else {
                     // ═════════════════════════════════════════════════════════
                     // STACKED LAYOUT (cell is vertical, typically 0°/180°)
                     //
                     // Information hierarchy (most important first):
-                    //   1. LABEL (object identity)        — always shown if it fits
-                    //   2. MAIN VALUE (the metric)        — shown if there's room
-                    //   3. VAL2 (secondary metric)        — only on tall cells
+                    //   1. LABEL (object identity)   — always shown if it fits
+                    //   2. MAIN VALUE (the metric)   — shown if there's room
                     //
                     // Rationale: in a synoptic map the user needs to identify WHICH
                     // object they are looking at before its metric. The fill color
-                    // already communicates state via rules. Text1 is therefore
-                    // redundant inside the cell (it's in the legend + the color).
+                    // already communicates the rule status, the legend confirms it,
+                    // and the tooltip carries every other field. Don't crowd the cell.
                     // ═════════════════════════════════════════════════════════
                     const fsLbl = Math.max(5, Math.min(10, gcw/3.5));
-                    const fsSub = Math.max(4, Math.min(8,  gcw/5.2));
                     const fsVal = Math.max(5, Math.min(9,  gcw/4.2));
                     const maxC  = Math.max(2, Math.floor(gcw/fsLbl*1.6));
                     const ltxt  = lbl.length>maxC ? lbl.slice(0,maxC-1)+"…" : lbl;
 
-                    // Decide what fits based on cell height. Each text line needs
-                    // ~1.4× its font size to render comfortably.
                     const lineLbl = fsLbl * 1.4;
-                    const lineSub = fsSub * 1.4;
                     const lineVal = fsVal * 1.4;
 
                     const showLbl = this.showLabel && !!lbl;
-                    const wantSub = hasVal2 && gch >= 48;
-                    // Show value only if user provided a metric (data-val is empty
-                    // when valorPrincipal isn't bound — see data-attr setter above).
                     const wantVal = hasVal;
 
-                    // Pick the richest layout that fits in the available height.
-                    // Always prefer Label over Value when only one fits.
-                    let layout: "lbl_sub_val" | "lbl_val" | "lbl_only" | "val_only" | "none" = "none";
-                    if (showLbl && wantSub && wantVal && gch >= lineLbl + lineSub + lineVal + 4) {
-                        layout = "lbl_sub_val";
-                    } else if (showLbl && wantVal && gch >= lineLbl + lineVal + 2) {
+                    // Pick the richest layout that fits. Identity wins over metric.
+                    let layout: "lbl_val" | "lbl_only" | "val_only" | "none" = "none";
+                    if (showLbl && wantVal && gch >= lineLbl + lineVal + 2) {
                         layout = "lbl_val";
                     } else if (showLbl) {
-                        // Cell too small for value — just show the label (identity wins)
                         layout = "lbl_only";
                     } else if (wantVal) {
                         layout = "val_only";
                     }
 
-                    if (layout === "lbl_sub_val") {
-                        mkText(center.x, center.y - gch * 0.30, ltxt, fsLbl, "700",
-                               CLR.text, CLR.bg, 1.2, 0.5, "middle");
-                        const maxSub = Math.max(2, Math.floor(gcw/fsSub*1.8));
-                        const subClipped = val2.length > maxSub
-                            ? val2.slice(0, maxSub-1) + "…"
-                            : val2;
-                        mkText(center.x, center.y, subClipped, fsSub, "500",
-                               CLR.dim, CLR.bg, 0.8, 0.35, "middle");
-                        mkText(center.x, center.y + gch * 0.30, val, fsVal, "800",
-                               valTxt, valHalo, 1.2, 0.35, "middle");
-                    } else if (layout === "lbl_val") {
+                    if (layout === "lbl_val") {
                         mkText(center.x, center.y - gch * 0.22, ltxt, fsLbl, "700",
                                CLR.text, CLR.bg, 1.2, 0.5, "middle");
                         mkText(center.x, center.y + gch * 0.22, val, fsVal, "800",
                                valTxt, valHalo, 1.2, 0.35, "middle");
                     } else if (layout === "lbl_only") {
-                        // Identity wins — only label, centered. Smaller font if needed
-                        // so it fits even on tiny cells.
                         const fsTight = Math.max(5, Math.min(fsLbl, gch * 0.55));
                         mkText(center.x, center.y, ltxt, fsTight, "700",
                                CLR.text, CLR.bg, 1.2, 0.5, "middle");
