@@ -10,21 +10,41 @@
   <a href="https://github.com/Automatajm/synoptic-studio/issues"><img src="https://img.shields.io/github/issues/Automatajm/synoptic-studio?color=38bdf8" alt="Issues"/></a>
 </p>
 
-> **A fully configurable synoptic map visual for Power BI.** Place any object on a canvas, define color rules against your data fields, and get instant cross-filtering with the rest of your report — no coding required.
+> **A configurable synoptic map visual for Power BI.** Place any object on a canvas, define color rules against your data, and get instant cross-filtering — built for operations teams who need to see their physical world in data.
 
 ---
 
 ## What is Synoptic Studio?
 
-Synoptic Studio is a Power BI custom visual that renders a **position-based map** of objects — greenhouses, tables, seats, machines, rooms, or anything you define — colored by configurable business rules applied to your data.
+Synoptic Studio renders the physical world of your business — greenhouses, hotel rooms, dental seats, parking spots, factory stations, server racks, theater seats — as a live, color-coded, cross-filterable map.
 
-Unlike generic map visuals, Synoptic Studio is **layout-driven**: each object has explicit X, Y, W, H coordinates in your dataset, so your visual matches the physical reality of your operation.
+You provide:
+- A list of objects with IDs (`A01`, `Rack-04`, `Seat-12B`)
+- Their physical positions on the canvas (X, Y, width, height)
+- A primary metric (occupancy %, status, alert level)
+- Color rules that drive how each object looks
+
+The visual produces a synoptic map that updates in real time, supports rotation, zoom, pan, dark/light themes, and acts as a slicer for the rest of your report.
 
 ### Built for operations teams
 
-Originally designed for large-scale ornamental plant production (2.8M plants across 118 greenhouses), Synoptic Studio solves the core problem of any field operations dashboard:
+Originally designed for large-scale ornamental plant production, Synoptic Studio solves the core problem of any field operations dashboard:
 
 > *"I need to see the status of every physical location at a glance, colored by what matters today."*
+
+---
+
+## Use case examples
+
+| Industry | Object | Main Value | Text Field 1 | Tooltip Fields |
+|---|---|---|---|---|
+| Agriculture | Greenhouse | Occupancy % | Status | Empty beds, plants, m² |
+| Hospitality | Hotel room | Occupancy % | Status | Guest, check-out, rate |
+| Healthcare | Dental seat | Health % | Tooth condition | Last visit, treatment plan |
+| Aviation | Aircraft seat | Booked | Class | Passenger, special meal |
+| Manufacturing | Workstation | Utilization % | Status | Operator, output, downtime |
+| Data Center | Server rack | CPU load % | Health | Temperature, alerts, uptime |
+| Retail | Parking spot | Occupied | Status | Vehicle, time parked |
 
 ---
 
@@ -32,31 +52,19 @@ Originally designed for large-scale ornamental plant production (2.8M plants acr
 
 | Feature | Description |
 |---|---|
-| **Color Rules Engine** | Define up to 20 rules per visual. First match wins. Rules evaluate text fields (equals, not equals) and numeric fields (greater, less, between). |
-| **13-color palette** | 5 semaphore colors (gray, green, yellow, orange, red) + 8 field colors. Pick any per rule. |
-| **Fixed layout** | Assign X, Y, W, H coordinates to each object. The visual renders them at exact positions — reflecting real-world geometry. |
-| **Auto-grid fallback** | No coordinates? The visual auto-arranges objects in an optimized grid. |
-| **Pan & Zoom** | Mouse wheel zoom, drag to pan, +/− buttons. |
-| **Rotation** | Rotate the canvas 0°/90°/180°/270° to match your map orientation. Labels stay upright. |
-| **Compass rose** | Fixed compass that reflects real-world orientation regardless of canvas rotation. |
-| **Legend click filter** | Click any legend chip to highlight and cross-filter matching objects. |
-| **Tooltip** | Hover any object to see all data fields with their display names. |
-| **Cross-filter** | Click any object to filter other visuals in the report. Ctrl+click for multi-select. |
-| **Rules editor** | Built-in rule editor panel — no JSON editing required. |
-
----
-
-## Screenshots
-
-<p align="center">
-  <img src="assets/screenshot-main.png" alt="Main view" width="780"/>
-  <br/><em>Synoptic Studio showing 118 greenhouses colored by weeding status</em>
-</p>
-
-<p align="center">
-  <img src="assets/screenshot-rules.png" alt="Rules editor" width="780"/>
-  <br/><em>Built-in color rules editor</em>
-</p>
+| **Color Rules Engine** | Built-in editor — no JSON required. Add rules with operators (`=`, `≠`, `>`, `≥`, `<`, `≤`, `between`). First match wins. Rules persist across reload, close/reopen, and report publishing. |
+| **Smart between operator** | Single-input syntax: `"3, 8"`, `"[3, 8]"`, `"3..8"`, `"3 - 8"`. Auto-sorts. Live red-border validation. |
+| **Curated 14-color palette** | Neutrals first (carbon, slate, white), then semaphore order (red, orange, amber, green, teal), then accents. All work in light and dark themes. |
+| **Multi-field tooltips** | Single `Tooltip Fields` bucket accepts measures, dates, and text in any combination. Auto-detects type. Strips PBI prefixes (`Sum of`, `Avg of`) by default while respecting user renames. Order preserved from drag sequence. |
+| **Theme adaptation** | Detects active Power BI report theme via `host.colorPalette.background` and adapts text, fills, and contrast automatically. WCAG luminance for value text legibility. |
+| **Fixed layout** | Assign X, Y, W, H coordinates to each object via dataset columns. The visual renders at exact positions. Auto-grid fallback when coordinates aren't provided. |
+| **Pan, Zoom, Rotation** | Mouse wheel zoom, drag-to-pan, `+`/`−` buttons. Rotation (0°, 90°, 180°, 270°) recalculates fit-to-viewport at every angle. Rotation persists across reload. |
+| **Compass with fixed stator** | The ring and N/S/E/W letters stay screen-anchored; only the needle rotates to point to map north. |
+| **Adaptive labels** | Identity-first hierarchy in compact cells: when space is limited, the Label is shown over the Value. 3-level inline cascade auto-collapses based on width. |
+| **Multi-select legend** | `Click` on a legend chip filters by that rule. `Ctrl+click` adds another (union semantics). Re-click toggles off. Click on canvas background clears all. |
+| **Mobile-friendly toolbars** | Both the controls bar and legend bar are horizontally scrollable with hidden scrollbar. Translucent edge arrows appear only when overflow exists. Wheel translates vertical-to-horizontal. |
+| **Cross-filtering** | Click any object to filter the rest of the report. Ctrl+click for multi-select. Selection persists across visual interactions. |
+| **Smart help banner** | Appears automatically when an aggregated `Main Value` (`Sum of`, `Avg of`, etc.) is bound — alerts users about the standard PBI behavior of filtering rows with null measures, with a one-click dismissal. |
 
 ---
 
@@ -69,103 +77,125 @@ Originally designed for large-scale ornamental plant production (2.8M plants acr
 3. Select the `.pbiviz` file and accept the security prompt
 4. The Synoptic Studio icon appears in your visualizations panel
 
-### Basic Setup
+### Quick start
 
-#### Step 1 — Prepare your data table
+#### 1. Bind your fields
 
-Your dataset needs at minimum:
-
-| Column | Type | Description |
+| Field | Required | What it is |
 |---|---|---|
-| `ID` | Text | Unique identifier per object (e.g. `A01`, `Table-12`) |
-| `Status` | Text | Categorical field for color rules (e.g. `OK`, `Alert`, `Critical`) |
-| `Value` | Number | Numeric measure (e.g. occupancy %, score, count) |
+| **Object ID** | Yes | Unique identifier per object |
+| **Label** | No | Display name shown inside each object (defaults to Object ID) |
+| **Main Value** | No | Numeric metric (0–100) that drives the fill bar |
+| **Text Field 1** | No | Categorical field used by color rules (e.g. Status) |
+| **Tooltip Fields** | No | Drag any number of fields here to show in the tooltip |
+| **Layout X / Y / W / H** | Recommended | Object position and size on the canvas |
 
-#### Step 2 — Add coordinates (optional but recommended)
+> **Important:** Set **Layout X / Y / W / H** columns to **Don't Summarize** in the Power BI model (Column tools → Summarization → Don't summarize). They are coordinates, not metrics to aggregate.
 
-For fixed layout, add four numeric columns:
+#### 2. Configure color rules
 
-| Column | Description | Range |
-|---|---|---|
-| `Layout_X` | Horizontal position | 0 – Canvas_W |
-| `Layout_Y` | Vertical position | 0 – Canvas_H |
-| `Layout_W` | Object width in pixels | Typically 14–38 |
-| `Layout_H` | Object height in pixels | Typically 36–105 |
+Click the **gear icon** (⚙) in the top-left of the visual to open the Color Rules editor. Defaults are seeded on first use:
 
-> **Important:** Set these columns to **Don't summarize** in the Power BI model (Column tools → Summarization → Don't summarize).
+- **Low** — Main Value < 40 → red
+- **Medium** — Main Value between 40 and 70 → amber
+- **High** — Main Value ≥ 70 → green
 
-#### Step 3 — Map fields to the visual
+Modify, reorder, or delete these to fit your domain. Rules persist across reload and report publishing.
 
-| Visual role | Map to |
+#### 3. Interact
+
+| Action | Effect |
 |---|---|
-| Invernadero (ID) | Your unique ID column |
-| Valor Principal | Your numeric measure |
-| Campo Texto 1 | Your categorical status column |
-| Layout X / Y / W / H | Your coordinate columns |
-
-#### Step 4 — Configure color rules
-
-Click **⚙ Color rules** in the visual's top bar. Add rules in order of priority:
-
-```
-Field: Campo Texto 1   Operator: = equal   Value: Critical   Color: Red     Label: Critical
-Field: Campo Texto 1   Operator: = equal   Value: Alert      Color: Orange  Label: Alert
-Field: Campo Texto 1   Operator: = equal   Value: OK         Color: Green   Label: OK
-```
-
-Click **✓ Save rules**. The visual updates immediately.
+| Click an object | Select it (cross-filters the rest of the report) |
+| `Ctrl+click` an object | Multi-select |
+| Click a legend chip | Filter all objects matching that rule |
+| `Ctrl+click` a legend chip | Add another rule to the filter (union) |
+| Click on canvas background | Clear all selection and filters |
+| Mouse wheel | Zoom |
+| Click + drag empty space | Pan |
+| Rotation buttons (`0°`/`90°`/`180°`/`270°`) | Rotate the canvas; content auto-fits the new orientation |
+| `↺` button | Reset zoom, pan, and rotation |
 
 ---
 
-## Advanced Usage
+## Troubleshooting
 
-### Rule syntax (JSON)
+### Some objects don't appear in the map
 
-Rules are stored as JSON in the Format pane under **Color Rules → Rules (JSON)**. You can edit them directly:
+**Cause:** Power BI core filters out rows where the Main Value (or any other measure in the visual) returns blank/null after aggregation. This is the documented Power BI default behavior — it applies to all visuals.
 
-```json
-[
-  {
-    "field": "campoTexto1",
-    "op": "eq",
-    "value": "Critical",
-    "color": "#ef4444",
-    "label": "Critical",
-    "enabled": true
-  },
-  {
-    "field": "valorPrincipal",
-    "op": "between",
-    "value": "75",
-    "value2": "90",
-    "color": "#f59e0b",
-    "label": "High 75–90%",
-    "enabled": true
-  }
-]
+**Solution:** Enable **Show items with no data** on your fields.
+
+1. In the Power BI Visualizations panel, find a field bucket (Object ID, or any Layout field).
+2. Click the dropdown arrow next to the field name (or right-click).
+3. Select **Show items with no data**.
+4. Repeat for `Object ID` and each of the four `Layout` fields.
+
+After enabling, all rows from your source table will appear, including those with null measures. Objects without a Main Value will display in the fallback color (carbon gray) — they show that the infrastructure exists but is not currently being measured.
+
+> **Help banner:** When you bind an aggregated measure (`Sum of …`, `Avg of …`, etc.) to Main Value, Synoptic Studio shows a banner reminding you about this option. Click ✕ to dismiss.
+
+### Layout coordinates show as 1, 2, 3... instead of real positions
+
+**Cause:** Power BI is summarizing your Layout X/Y/W/H columns.
+
+**Solution:** Right-click each Layout column → **Don't Summarize**.
+
+### Rules don't persist after closing the report
+
+**Cause:** This was an issue in earlier versions; resolved in v1.0+.
+
+**Solution:** Update to the latest version. Rules persist via Power BI's `persistProperties` API and survive close/reopen.
+
+### Rotation resets after reload
+
+**Cause:** This was an issue in v1.0; resolved in v1.1.
+
+**Solution:** Update to v1.1 or later. Rotation now persists across reload and report publishing.
+
+---
+
+## Settings reference
+
+### General
+
+| Setting | Default | Effect |
+|---|---|---|
+| Show label | On | Toggle the object name inside each cell |
+| Show main value | On | Toggle the metric value inside each cell |
+| Default color | `#4a5560` (carbon) | Color used when no rule matches |
+
+### Color Rules (gear icon)
+
+| Property | Description |
+|---|---|
+| Field | Which field to evaluate (`Main Value` or `Text Field 1`) |
+| Operator | `=`, `≠`, `>`, `≥`, `<`, `≤`, `between` |
+| Value | The threshold or category to match. For `between`, accepts `"3, 8"`, `"[3, 8]"`, `"3..8"`, `"3 - 8"` |
+| Color | Pick from the curated 14-color palette |
+| Label | Display name for the rule (shown in legend and tooltip badge) |
+| Order | Use ↑↓ to reorder; first match wins |
+| Enabled | Toggle without deleting |
+
+---
+
+## Layout coordinates
+
+Layout X / Y / W / H define the position and size of each object on the canvas, in pixels. The visual auto-scales the entire canvas to fit the available space, preserving aspect ratio.
+
+```
+Object ID  | Layout_X | Layout_Y | Layout_W | Layout_H
+-----------|----------|----------|----------|----------
+A01        |       20 |       12 |       22 |       46
+A02        |       46 |       12 |       22 |       46
+A03        |       72 |       12 |       22 |       46
+...
 ```
 
-**Supported operators:**
-
-| Operator | Description |
-|---|---|
-| `eq` | Equals (text or number) |
-| `neq` | Not equals |
-| `gt` | Greater than |
-| `gte` | Greater than or equal |
-| `lt` | Less than |
-| `lte` | Less than or equal |
-| `between` | Between value and value2 (inclusive) |
-
-**Available fields in rules:**
-
-| Field key | Maps to visual role |
-|---|---|
-| `campoTexto1` | Campo Texto 1 |
-| `campoTexto2` | Campo Texto 2 |
-| `valorPrincipal` | Valor Principal |
-| `valor2` | Valor 2 |
-| `valor3` | Valor 3 |
+**Tips:**
+- Use a single coordinate space for all objects (e.g. 0–1000 wide, 0–500 tall).
+- Aspect ratio matters — design at the ratio your visual will be rendered.
+- Don't summarize these columns — set to **Don't Summarize** in Power BI.
 
 ### GPS coordinates
 
@@ -187,16 +217,18 @@ RETURN
     DIVIDE(lat_max - [Latitude], lat_max - lat_min) * canvas_h
 ```
 
-### Pan, Zoom & Rotation
+---
 
-| Control | Action |
+## Browser & Power BI compatibility
+
+| Environment | Status |
 |---|---|
-| Mouse wheel | Zoom in/out |
-| Drag on background | Pan |
-| `0° 90° 180° 270°` buttons | Rotate canvas |
-| `⊙ reset` button | Reset zoom, pan, and rotation |
+| Power BI Desktop (Windows) | ✓ Full support |
+| Power BI Service (browser) | ✓ Full support |
+| Power BI Mobile (iOS / Android) | ✓ Full support |
+| Power BI Embedded | ✓ Full support |
 
-The compass rose always points true North regardless of canvas rotation. Labels remain upright at all rotation angles.
+Adapts automatically to the active Power BI report theme (light / dark / high contrast / custom).
 
 ---
 
@@ -209,42 +241,36 @@ SynopticStudio/
 │   └── settings.ts        # Format pane settings model
 ├── style/
 │   └── visual.less        # Minimal styles
-├── capabilities.json      # Data roles and mappings
-├── pbiviz.json           # Visual metadata
+├── capabilities.json      # Data roles and mappings (table mapping)
+├── pbiviz.json            # Visual metadata
 └── assets/
-    └── icon.png          # 20×20 visual icon
+    └── icon.png           # 20×20 visual icon
 ```
 
 ### Data flow
 
 ```
-Power BI DataView
+Power BI DataView (table mapping)
       ↓
-  update() — parse categories and values by role
+  update() — parse rows by role; capture column metadata
       ↓
   Color rules engine — evalRule() per object
       ↓
-  Layout engine — fixed coords or auto-grid
+  Layout engine — fixed coords or auto-grid; rotation-aware fit
       ↓
-  SVG render — transform group for pan/zoom/rotate
+  SVG render — separate layers for shapes (rotates) and labels/fills (upright)
       ↓
-  Events — hover tooltip, click cross-filter, legend filter
+  Events — hover tooltip, click cross-filter, multi-select legend filter
 ```
 
----
+### Why `table` mapping?
 
-## Comparison with OKViz Synoptics Panel
+Power BI custom visuals can use either `categorical` or `table` mapping for data binding. Synoptic Studio uses `table` because:
 
-| Feature | OKViz Synoptics Panel | Synoptic Studio |
-|---|---|---|
-| Custom layout | Via SVG editor tool | Via X,Y,W,H columns in dataset |
-| Color rules | Conditional formatting | Built-in rule engine with JSON |
-| Cross-filter | ✓ | ✓ |
-| Pan/Zoom | ✓ | ✓ |
-| Rotation | ✗ | ✓ (0/90/180/270°) |
-| GPS coordinates | ✗ | ✓ (via DAX columns) |
-| Open source | ✗ | ✓ |
-| Price | Paid | Free / Open Source |
+- It preserves every row from the source table (no implicit grouping)
+- Respects the user's `Show items with no data` setting consistently
+- Matches the natural mental model of "one object per row"
+- Avoids edge cases where aggregated measures cause silent row filtering
 
 ---
 
@@ -252,7 +278,7 @@ Power BI DataView
 
 ### Prerequisites
 
-- Node.js 18+ 
+- Node.js 18+
 - npm 9+
 
 ### Setup
@@ -264,7 +290,7 @@ cd synoptic-studio
 npm install -g powerbi-visuals-tools
 pbiviz install-cert
 
-cd SynopticStudio
+cd synopticStudio
 npm install
 ```
 
@@ -282,14 +308,31 @@ pbiviz package  # Generates dist/synopticStudio.pbiviz
 
 ---
 
+## Comparison with OKViz Synoptics Panel
+
+| Feature | OKViz Synoptics Panel | Synoptic Studio |
+|---|---|---|
+| Custom layout | Via SVG editor tool | Via X,Y,W,H columns in dataset |
+| Color rules | Conditional formatting only | Built-in rule engine with persistence |
+| Multi-field tooltips | Limited | Unlimited fields, auto-typed |
+| Cross-filter | ✓ | ✓ |
+| Multi-select legend | ✗ | ✓ (Ctrl+click) |
+| Pan / Zoom / Rotation | Limited | Full + rotation persists |
+| GPS coordinates | ✗ | ✓ (via DAX columns) |
+| Theme adaptation | Limited | WCAG luminance, full dark/light |
+| Mobile-friendly | Limited | Scrollable bars, touch-ready |
+| Open source | ✗ | ✓ |
+| Price | Paid | Free / Open Source |
+
+---
+
 ## Roadmap
 
+- [ ] Visual editor tool (web app for tracing object positions over a background image)
+- [ ] Polygon support for irregular shapes (dental charts, geographical maps)
+- [ ] Background image overlay in the visual itself
 - [ ] Shape types: circle, diamond, hexagon per object
-- [ ] Image/icon overlay per object
 - [ ] Drill-through on object click
-- [ ] Mobile touch support (pinch zoom)
-- [ ] Import layout from GeoJSON/KML
-- [ ] Multiple canvas pages
 - [ ] Rule templates (semaphore, heatmap, occupancy)
 - [ ] AppSource marketplace listing
 
@@ -306,17 +349,23 @@ Contributions are welcome. Please open an issue before submitting a pull request
 
 ---
 
+## Privacy
+
+Synoptic Studio runs entirely client-side. No data leaves the user's browser; no telemetry is sent. See [PRIVACY.md](./PRIVACY.md) for details.
+
+---
+
 ## License
 
-MIT License — see [LICENSE](LICENSE) for details.
+MIT License — see [LICENSE](./LICENSE) for details.
 
 ---
 
 ## Author
 
-**Automatajm**  
-Financial Planning & Analytics | Enterprise Software Development  
-Dominican Republic  
+**Automatajm**
+Financial Planning & Analytics | Enterprise Software Development
+Dominican Republic
 [github.com/Automatajm](https://github.com/Automatajm)
 
 ---
