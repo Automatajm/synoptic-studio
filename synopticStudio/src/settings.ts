@@ -45,7 +45,7 @@ class GeneralCard extends FormattingSettingsCard {
         name: "colorFallback",
         displayName: "Default color",
         description: "Color used when no rule matches the object.",
-        value: { value: "#52626a" },
+        value: { value: "#4a5560" },
     });
 
     name:        string = "general";

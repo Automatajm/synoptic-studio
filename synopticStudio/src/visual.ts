@@ -28,6 +28,7 @@ interface TooltipField {
     name:  string;
     value: string;
     isNumeric: boolean;
+    order: number;   // user-provided display order (preserved from drag sequence)
 }
 
 interface SynopticObject {
@@ -39,17 +40,24 @@ interface SynopticObject {
     layoutY?:       number;
     layoutW?:       number;
     layoutH?:       number;
-    // Extra tooltip data — now arrays so users can add as many fields as they want
-    tooltipNumbers: TooltipField[];
-    tooltipTexts:   TooltipField[];
+    // All extra fields the user dropped in the Tooltip Fields bucket,
+    // already merged from categories + values and sorted in user order.
+    tooltipFields:  TooltipField[];
     selectionId:    ISelectionId;
 }
 
 // ── Palette ───────────────────────────────────────────────────────────────────
+// Curated set: neutral carbon first (default fallback, works on light & dark themes),
+// then semaphore order (red → amber → green), then accents.
 const PALETTE = [
-    "#52626a","#00e5a0","#f59e0b","#fb923c","#ef4444",
-    "#38bdf8","#a78bfa","#ec4899","#2dd4bf","#84cc16",
-    "#e879f9","#fbbf24","#ffffff","#94a3b8",
+    // Neutrals
+    "#4a5560","#94a3b8","#ffffff",
+    // Semaphore (red, orange, amber, green, teal)
+    "#ef4444","#fb923c","#f59e0b","#00e5a0","#2dd4bf",
+    // Cool accents
+    "#38bdf8","#a78bfa","#ec4899",
+    // Warm accents
+    "#fbbf24","#84cc16","#e879f9",
 ];
 
 // ── Theme — adapts to Power BI report theme via host color palette ────────────
@@ -187,6 +195,119 @@ function svgEl(tag: string, attrs: Record<string,string>): SVGElement {
     return e;
 }
 
+/**
+ * Wrap a horizontal-flex container so its overflow becomes scrollable WITHOUT
+ * showing a native scrollbar (which steals space, especially on mobile). Adds:
+ *  - Mouse wheel translation: vertical wheel scrolls horizontally
+ *  - Translucent left/right arrow buttons that appear ONLY when overflow exists
+ *    in that direction
+ *  - Auto-update on resize and when the container's children change
+ *
+ * The container must already be styled with display:flex; flexWrap:nowrap.
+ * Returns the (now scrollable) inner element so the caller can keep appending
+ * children to it.
+ */
+function wrapScrollable(container: HTMLElement): HTMLElement {
+    // Make the container itself the scroll viewport
+    container.style.overflowX = "auto";
+    container.style.overflowY = "hidden";
+    container.style.scrollBehavior = "smooth";
+    // Hide native scrollbar (cross-browser):
+    //   - WebKit: ::-webkit-scrollbar { display: none }
+    //   - Firefox: scrollbar-width: none
+    //   - IE/Edge legacy: -ms-overflow-style: none
+    (container.style as unknown as Record<string,string>)["scrollbarWidth"] = "none";
+    (container.style as unknown as Record<string,string>)["msOverflowStyle"] = "none";
+    // Inject the WebKit rule once (idempotent — checks before adding)
+    if (!document.getElementById("syn-scrollable-style")) {
+        const st = document.createElement("style");
+        st.id = "syn-scrollable-style";
+        st.textContent = `
+            .syn-scrollable::-webkit-scrollbar { display: none; width: 0; height: 0; }
+            .syn-arrow {
+                position: absolute; top: 0; bottom: 0; width: 22px;
+                display: flex; align-items: center; justify-content: center;
+                cursor: pointer; opacity: 0; transition: opacity .15s ease;
+                pointer-events: none; z-index: 10;
+                font-family: 'Segoe UI', sans-serif; font-weight: 700; font-size: 14px;
+                color: rgba(255,255,255,.85);
+                user-select: none;
+            }
+            .syn-arrow.syn-arrow-active {
+                opacity: 1; pointer-events: auto;
+            }
+            .syn-arrow-left  { left: 0;
+                background: linear-gradient(to right, rgba(0,0,0,.45), rgba(0,0,0,0)); }
+            .syn-arrow-right { right: 0;
+                background: linear-gradient(to left,  rgba(0,0,0,.45), rgba(0,0,0,0)); }
+        `;
+        document.head.appendChild(st);
+    }
+    container.classList.add("syn-scrollable");
+
+    // Wheel: vertical wheel → horizontal scroll
+    container.addEventListener("wheel", (e: WheelEvent) => {
+        // Only intercept if there's actual horizontal overflow
+        if (container.scrollWidth <= container.clientWidth) return;
+        e.preventDefault();
+        e.stopPropagation();
+        // Use whichever delta is larger so trackpads (deltaX) and mice (deltaY) both work
+        const dx = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
+        container.scrollLeft += dx;
+    }, { passive: false, capture: true });
+
+    // The arrows live in the parent (positioned absolutely) so they overlay the
+    // container without affecting its flex children. The container needs to be
+    // inside a positioned parent.
+    const parent = container.parentElement;
+    if (!parent) return container;
+    if (getComputedStyle(parent).position === "static") {
+        parent.style.position = "relative";
+    }
+
+    const left = mk("div"); left.className = "syn-arrow syn-arrow-left";
+    left.textContent = "‹"; left.title = "Scroll left";
+    const right = mk("div"); right.className = "syn-arrow syn-arrow-right";
+    right.textContent = "›"; right.title = "Scroll right";
+    parent.appendChild(left);
+    parent.appendChild(right);
+
+    const STEP = 80;
+    left.addEventListener("click",  () => { container.scrollLeft -= STEP; });
+    right.addEventListener("click", () => { container.scrollLeft += STEP; });
+
+    const updateArrows = () => {
+        const max = container.scrollWidth - container.clientWidth;
+        const sl  = container.scrollLeft;
+        // 1px tolerance to avoid jitter on subpixel rounding
+        if (max <= 1) {
+            left.classList.remove("syn-arrow-active");
+            right.classList.remove("syn-arrow-active");
+            return;
+        }
+        left.classList.toggle("syn-arrow-active",  sl > 1);
+        right.classList.toggle("syn-arrow-active", sl < max - 1);
+    };
+
+    container.addEventListener("scroll", updateArrows);
+    // Watch for size changes (viewport resize, content additions, theme changes)
+    if (typeof ResizeObserver !== "undefined") {
+        const ro = new ResizeObserver(updateArrows);
+        ro.observe(container);
+    } else {
+        window.addEventListener("resize", updateArrows);
+    }
+    // Watch for child additions/removals so arrows update when chips render
+    if (typeof MutationObserver !== "undefined") {
+        const mo = new MutationObserver(updateArrows);
+        mo.observe(container, { childList: true, subtree: false });
+    }
+    // Initial check (deferred so layout is measured)
+    setTimeout(updateArrows, 0);
+
+    return container;
+}
+
 const INP: Partial<CSSStyleDeclaration> = {
     background:CLR.surface, border:`1px solid ${CLR.border}`,
     color:CLR.text, borderRadius:"4px", padding:"2px 5px",
@@ -264,8 +385,13 @@ function evalRule(rule: ColorRule, obj: SynopticObject): boolean {
     };
     const raw = map[rule.field];
     if (raw === undefined || raw === null) return false;
+    // For categorical operators (eq/neq), empty string is also "no value"
+    const isCategoricalOp = rule.op === "eq" || rule.op === "neq";
+    if (isCategoricalOp && String(raw).trim() === "") return false;
+    // For numeric operators, the parsed value must be a real number (not NaN)
+    const nv = typeof raw === "number" ? raw : parseFloat(String(raw));
+    if (!isCategoricalOp && (isNaN(nv) || !isFinite(nv))) return false;
     const rv = parseFloat(rule.value);
-    const nv = typeof raw==="number" ? raw : parseFloat(String(raw));
     switch(rule.op){
         case "eq":      return String(raw)===String(rule.value);
         case "neq":     return String(raw)!==String(rule.value);
@@ -287,7 +413,7 @@ function applyRules(rules: ColorRule[], obj: SynopticObject, fb: string): {color
         if (!r.enabled) continue;
         if (evalRule(r,obj)) return {color:r.color,label:r.label};
     }
-    return {color:fb,label:"—"};
+    return {color:fb,label:"Default"};
 }
 
 // ── Layout ────────────────────────────────────────────────────────────────────
@@ -358,13 +484,10 @@ function buildTooltip(obj: SynopticObject, color: string, ruleLabel: string,
     if (obj.campoTexto1) {
         addRow("Status", formatTooltipValue(obj.campoTexto1), false);
     }
-    // Then user-added numeric tooltip fields, in order
-    for (const f of obj.tooltipNumbers) {
-        addRow(cleanFieldName(f.name), f.value, true);
-    }
-    // Then user-added text tooltip fields, in order
-    for (const f of obj.tooltipTexts) {
-        addRow(cleanFieldName(f.name), f.value, false);
+    // Then user-added tooltip fields, in the order they were dragged.
+    // The array is already merged from numeric+text and sorted by displayOrder.
+    for (const f of obj.tooltipFields) {
+        addRow(cleanFieldName(f.name), f.value, f.isNumeric);
     }
 
     wrap.appendChild(tbl);
@@ -503,9 +626,10 @@ class RulesEditor {
             const c=mk("div",{display:"flex",alignItems:"center",gap:"3px",
                                padding:"2px 7px",borderRadius:"3px",
                                background:hexToRgba(r.color,.12),
-                               border:`1px solid ${hexToRgba(r.color,.4)}`});
+                               border:`1px solid ${hexToRgba(r.color,.4)}`,
+                               whiteSpace:"nowrap",flexShrink:"0"});
             const d=mk("div",{width:"7px",height:"7px",borderRadius:"1px",background:r.color,flexShrink:"0"});
-            const l=mk("span",{fontSize:"8px",color:r.color});
+            const l=mk("span",{fontSize:"8px",color:r.color,whiteSpace:"nowrap"});
             l.textContent=r.label||"—";
             c.appendChild(d); c.appendChild(l); this.legEl.appendChild(c);
         });
@@ -667,7 +791,7 @@ export class Visual implements IVisual {
     private selectedIds: Set<string>     = new Set();
     private rules:       ColorRule[]     = [];
     private objects:     SynopticObject[]= [];
-    private legendFilter: string | null   = null;
+    private legendFilter: Set<string>      = new Set();
     // Pan / Zoom / Rotation state
     private panX     = 0;
     private panY     = 0;
@@ -686,11 +810,17 @@ export class Visual implements IVisual {
     private labelsGroup:    SVGElement | null = null;
     private fillLayer:      SVGElement | null = null;
     private mainValueName: string = "";
-    private fallback     = "#52626a";
+    private fallback     = "#4a5560";
     private showLabel    = true;
     private showValue    = true;
     private vpW          = 0;
     private vpH          = 0;
+    // When true, a discreet hint is shown about enabling "Show items with no data".
+    // Set to true when Main Value is bound (which can cause PBI to filter rows
+    // with null aggregated measures). Once the user dismisses the hint, it stays
+    // dismissed for the session via hintDismissed.
+    private shouldShowHint  = false;
+    private hintDismissed   = false;
 
     constructor(options: VisualConstructorOptions) {
         this.host   = options.host;
@@ -723,13 +853,15 @@ export class Visual implements IVisual {
         bar.appendChild(gb);
         bar.appendChild(mk("div",{width:"1px",height:"16px",background:CLR.border,
                                    flexShrink:"0",margin:"0 4px"}));
-        // Controls go directly in bar row 1
+        // Controls go directly in bar row 1 — scrollable on narrow viewports
         const ctrlWrap=mk("div",{
             display:"flex",alignItems:"center",gap:"3px",
-            flex:"1",flexWrap:"nowrap",overflow:"hidden",
+            flex:"1",flexWrap:"nowrap",
         });
         bar.appendChild(ctrlWrap);
         this.target.appendChild(bar);
+        // Make controls scrollable horizontally with translucent edge arrows
+        wrapScrollable(ctrlWrap);
 
         // ── Row 2: legend bar (full width, always visible) ───────────────────
         const legendRow=mk("div",{
@@ -743,10 +875,12 @@ export class Visual implements IVisual {
         });
         this.legendBar=mk("div",{
             display:"flex",gap:"5px",flexWrap:"nowrap",
-            alignItems:"center",flex:"1",overflow:"hidden",minWidth:"0",
+            alignItems:"center",flex:"1",minWidth:"0",
         });
         legendRow.appendChild(this.legendBar);
         this.target.appendChild(legendRow);
+        // Make legend scrollable horizontally with translucent edge arrows
+        wrapScrollable(this.legendBar);
 
         // Canvas wrapper
         this.wrapper=mk("div",{position:"absolute",top:"54px",left:"0",right:"0",bottom:"0"});
@@ -825,7 +959,8 @@ export class Visual implements IVisual {
                 e.stopPropagation();
                 this.rotation=internalDeg;
                 this.panX=0; this.panY=0; this.zoomLevel=1.0;
-                this.applyTransform();
+                // Re-draw to recalculate fit-scale for the new rotation
+                this.draw();
                 this.drawCompassRotated();
             });
             ctrlWrap.appendChild(rb);
@@ -867,22 +1002,25 @@ export class Visual implements IVisual {
         zoomDisplay.textContent="100%";
         ctrlWrap.appendChild(zoomDisplay);
 
-        // Reset button — resets to 180° (the natural orientation for this layout)
-        const resetBtn=mk("button",{fontFamily:"'Segoe UI',sans-serif",fontSize:"9px",
-            padding:"2px 9px",background:CLR.card,
+        // Reset button — icon-only, matches the + / − style. Resets zoom, pan,
+        // and rotation back to the natural orientation in one click.
+        const resetBtn=mk("button",{fontFamily:"'Segoe UI',sans-serif",fontSize:"12px",
+            padding:"1px 9px",background:CLR.card,
             border:`1px solid ${CLR.border}`,color:CLR.text,
-            borderRadius:"3px",cursor:"pointer",marginLeft:"4px",fontWeight:"500"});
-        resetBtn.textContent="↺ Reset";
+            borderRadius:"3px",cursor:"pointer",marginLeft:"4px",fontWeight:"700"});
+        resetBtn.textContent="↺";
+        resetBtn.title="Reset view (zoom, pan, rotation)";
         resetBtn.addEventListener("click",(e)=>{
             e.stopPropagation();
             this.panX=0; this.panY=0; this.zoomLevel=1.0; this.rotation=180;
-            this.applyTransform();
+            // Re-draw to recalculate fit-scale for the reset rotation
+            this.draw();
             this.drawCompassRotated();
         });
         ctrlWrap.appendChild(resetBtn);
         this.svg.addEventListener("click",()=>{
             this.selectedIds.clear(); this.selMgr.clear();
-            this.legendFilter = null;
+            this.legendFilter.clear();
             this.editor.hide();
             this.drawLegend();
         });
@@ -959,102 +1097,141 @@ export class Visual implements IVisual {
         this.rules = this.rules.map(r => ({...r, id: r.id || uid()}));
         this.editor.load(this.rules);
 
-        this.fallback  =this.fmtSettings.generalCard.colorFallback.value.value||"#52626a";
+        this.fallback  =this.fmtSettings.generalCard.colorFallback.value.value||"#4a5560";
         this.showLabel =this.fmtSettings.generalCard.mostrarEtiqueta.value;
         this.showValue =this.fmtSettings.generalCard.mostrarValor.value;
 
-        const dv=options.dataViews?.[0];
-        if(!dv?.categorical?.categories?.length){ this.drawEmpty(); return; }
+        const dv = options.dataViews?.[0];
+        if (!dv?.table?.rows?.length || !dv.table.columns?.length) {
+            this.drawEmpty();
+            return;
+        }
 
-        const cats = dv.categorical.categories;
-        const vals = dv.categorical.values || [];
+        const cols = dv.table.columns;
+        const rows = dv.table.rows;
 
-        // Single-value role indices (the first occurrence wins)
-        const ri: Record<string, number> = {};
-        cats.forEach((c, i) => {
-            if (c.source.roles) Object.keys(c.source.roles).forEach(r => {
-                if (ri[r] === undefined) ri[r] = i;
-            });
-        });
-        const vi: Record<string, number> = {};
-        vals.forEach((v, i) => {
-            if (v.source.roles) Object.keys(v.source.roles).forEach(r => {
-                if (vi[r] === undefined) vi[r] = i;
-            });
-        });
-
-        // Multi-value role indices (collect ALL items with the role)
-        const tooltipTextIdx: number[] = [];
-        cats.forEach((c, i) => {
-            if (c.source.roles && c.source.roles["tooltipText"]) tooltipTextIdx.push(i);
-        });
-        const tooltipNumIdx: number[] = [];
-        vals.forEach((v, i) => {
-            if (v.source.roles && v.source.roles["tooltipNumbers"]) tooltipNumIdx.push(i);
+        // Build role → column-index lookup. For single-value roles we keep the
+        // first matching column. For tooltipFields (multi) we collect all.
+        const colByRole: Record<string, number> = {};
+        const tooltipColIdxs: number[] = [];
+        cols.forEach((c, i) => {
+            const roles = c.roles as Record<string, unknown> | undefined;
+            if (!roles) return;
+            for (const r of Object.keys(roles)) {
+                if (r === "tooltipFields") {
+                    tooltipColIdxs.push(i);
+                } else if (colByRole[r] === undefined) {
+                    colByRole[r] = i;
+                }
+            }
         });
 
-        // Capture display name of the Main Value column for the tooltip header row
-        this.mainValueName = vi["valorPrincipal"] !== undefined
-            ? vals[vi["valorPrincipal"]].source.displayName
+        // Capture Main Value display name for the tooltip header row
+        this.mainValueName = colByRole["valorPrincipal"] !== undefined
+            ? cols[colByRole["valorPrincipal"]].displayName
             : "";
 
-        // Get a single-value field by role (used for ID, label, layout, etc.)
-        const valueAt = (role: string, i: number): string|undefined =>
-            ri[role] !== undefined ? String(cats[ri[role]].values[i] ?? "") : undefined;
-        const numAt = (role: string, i: number): number|undefined => {
-            if (vi[role] === undefined) return undefined;
-            const raw = vals[vi[role]].values[i];
-            if (raw === null || raw === undefined) return undefined;
-            const n = Number(raw);
-            return isNaN(n) ? undefined : n;
+        // Read the displayOrder PBI assigns to each "for/in" item.
+        // Used to preserve the order the user dragged the tooltip fields in.
+        const orderOf = (src: powerbi.DataViewMetadataColumn, fallback: number): number => {
+            try {
+                const r = src.roles as Record<string, unknown> | undefined;
+                if (r && r["tooltipFields"]) {
+                    const meta = r["tooltipFields"];
+                    if (typeof meta === "object" && meta !== null
+                        && "displayOrder" in meta
+                        && typeof (meta as {displayOrder?: number}).displayOrder === "number") {
+                        return (meta as {displayOrder: number}).displayOrder;
+                    }
+                }
+            } catch (_e) { /* fall through */ }
+            return fallback;
         };
-        const layoutAt = (role: string, i: number, fallback: number): number|undefined => {
-            if (ri[role] === undefined) return undefined;
-            const raw = cats[ri[role]].values[i];
-            const n = parseFloat(String(raw ?? fallback));
+
+        // Helpers to extract a typed value from a row by role.
+        const cellAt = (role: string, rowIdx: number): powerbi.PrimitiveValue | undefined => {
+            const ci = colByRole[role];
+            if (ci === undefined) return undefined;
+            return rows[rowIdx][ci];
+        };
+        const strAt = (role: string, rowIdx: number): string | undefined => {
+            const v = cellAt(role, rowIdx);
+            return v === undefined || v === null ? undefined : String(v);
+        };
+        const numAt = (role: string, rowIdx: number): number | undefined => {
+            const v = cellAt(role, rowIdx);
+            if (v === undefined || v === null) return undefined;
+            const n = Number(v);
+            return isNaN(n) || !isFinite(n) ? undefined : n;
+        };
+        const layoutAt = (role: string, rowIdx: number, fallback: number): number => {
+            const v = cellAt(role, rowIdx);
+            if (v === undefined || v === null) return fallback;
+            const n = parseFloat(String(v));
             return isNaN(n) ? fallback : n;
         };
 
-        const n = cats[0]?.values?.length || 0;
         this.objects = [];
-        for (let i = 0; i < n; i++) {
-            const id = valueAt("invernadero", i) || String(i);
 
-            // Collect this row's tooltip extras
-            const tooltipNumbers: TooltipField[] = tooltipNumIdx.map(idx => {
-                const raw = vals[idx].values[i];
-                return {
-                    name:  vals[idx].source.displayName,
-                    value: formatTooltipValue(raw),
-                    isNumeric: true,
-                };
-            }).filter(f => f.value !== "");
+        // Track whether Main Value is bound — when it is, PBI may filter rows
+        // where the measure aggregates to null/blank. We surface an educational
+        // hint once per session to remind the user about "Show items with no data".
+        const hasMainValBound = colByRole["valorPrincipal"] !== undefined;
 
-            const tooltipTexts: TooltipField[] = tooltipTextIdx.map(idx => {
-                const raw = cats[idx].values[i];
-                return {
-                    name:  cats[idx].source.displayName,
-                    value: formatTooltipValue(raw),
-                    isNumeric: false,
-                };
-            }).filter(f => f.value !== "");
+        for (let i = 0; i < rows.length; i++) {
+            const id = strAt("invernadero", i) || String(i);
+
+            // Build tooltipFields array merged from all columns with that role
+            const merged: TooltipField[] = [];
+            tooltipColIdxs.forEach(idx => {
+                const src = cols[idx];
+                const raw = rows[i][idx];
+                const formatted = formatTooltipValue(raw);
+                if (formatted === "") return;
+                // Decide numeric vs textual by the column's underlying type
+                const isNum = !!(src.type && src.type.numeric);
+                merged.push({
+                    name:      src.displayName,
+                    value:     formatted,
+                    isNumeric: isNum,
+                    order:     orderOf(src, 1000 + idx),
+                });
+            });
+            merged.sort((a, b) => a.order - b.order);
+
+            // Selection ID — table mapping uses withTable(table, rowIndex).
+            // Falls back to a plain selectionId on older API versions without it.
+            let selectionId: ISelectionId;
+            try {
+                const builder = this.host.createSelectionIdBuilder() as
+                    powerbi.visuals.ISelectionIdBuilder & {
+                        withTable?: (table: powerbi.DataViewTable, rowIndex: number) => powerbi.visuals.ISelectionIdBuilder;
+                    };
+                if (builder.withTable && dv.table) {
+                    selectionId = builder.withTable(dv.table, i).createSelectionId();
+                } else {
+                    selectionId = this.host.createSelectionIdBuilder().createSelectionId();
+                }
+            } catch (_e) {
+                selectionId = this.host.createSelectionIdBuilder().createSelectionId();
+            }
 
             this.objects.push({
                 id,
-                label:          valueAt("etiqueta", i) || id,
+                label:          strAt("etiqueta", i) || id,
                 valorPrincipal: numAt("valorPrincipal", i),
-                campoTexto1:    valueAt("campoTexto1", i),
+                campoTexto1:    strAt("campoTexto1", i),
                 layoutX:        layoutAt("layoutX", i, 0),
                 layoutY:        layoutAt("layoutY", i, 0),
                 layoutW:        layoutAt("layoutW", i, 22),
                 layoutH:        layoutAt("layoutH", i, 46),
-                tooltipNumbers,
-                tooltipTexts,
-                selectionId: this.host.createSelectionIdBuilder()
-                    .withCategory(cats[ri["invernadero"] ?? 0], i)
-                    .createSelectionId(),
+                tooltipFields:  merged,
+                selectionId,
             });
         }
+        // Show hint when Main Value is bound (potentially aggregated → may filter rows).
+        // The hint is dismissable; once dismissed it stays dismissed for the session.
+        this.shouldShowHint = hasMainValBound;
         this.draw(); this.drawLegend();
     }
 
@@ -1117,15 +1294,27 @@ export class Visual implements IVisual {
         const hasFixed = this.objects.length > 0 && this.objects[0].layoutX !== undefined;
         let layout: Cell[];
         if (hasFixed) {
-            // Scale fixed coords to current viewport
+            // Source bounding box in layout coordinates
             const srcW = this.objects[0].layoutX !== undefined
                 ? Math.max(...this.objects.map(o=>( o.layoutX||0)+(o.layoutW||22))) : 940;
             const srcH = Math.max(...this.objects.map(o=>(o.layoutY||0)+(o.layoutH||46)));
-            const scaleX = W / Math.max(srcW, 1);
-            const scaleY = H / Math.max(srcH, 1);
+
+            // Rotation-aware fit: at 90°/270° the visible bounding box on screen
+            // has W and H swapped, so we need to fit srcH against W and srcW
+            // against H. Without this, rotating the map causes content to spill
+            // past the viewport edges (looks like a zoom-out / zoom-in jump).
+            const norm = ((this.rotation % 360) + 360) % 360;
+            const swapped = (norm === 90 || norm === 270);
+            const fitW = swapped ? srcH : srcW;
+            const fitH = swapped ? srcW : srcH;
+            const scaleX = W / Math.max(fitW, 1);
+            const scaleY = H / Math.max(fitH, 1);
             const scale  = Math.min(scaleX, scaleY) * 0.96;
-            const offX   = (W - srcW * scale) / 2;
-            const offY   = (H - srcH * scale) / 2;
+
+            // Center using ORIGINAL dimensions — the rotation transform pivots
+            // around viewport center, so center the unrotated layout on that pivot.
+            const offX = (W - srcW * scale) / 2;
+            const offY = (H - srcH * scale) / 2;
             layout = this.objects.map(o => ({
                 id: o.id,
                 x:  Math.round((o.layoutX||0) * scale + offX),
@@ -1158,18 +1347,22 @@ export class Visual implements IVisual {
 
             // Store fill + label metadata for upright rendering in fill-layer and labels-group
             if(!dimmed){
-                const hasMainVal = obj.valorPrincipal !== undefined
-                                && obj.valorPrincipal !== null
-                                && !isNaN(obj.valorPrincipal as number);
+                // Distinguish three states for Main Value:
+                //  - undefined: field not bound OR row has null → no metric (status-only)
+                //               → fill 100% (full container, just shows existence)
+                //               → no number drawn
+                //               → rules over valorPrincipal won't match (fallback)
+                //  - 0:         real zero (user explicitly has data showing zero)
+                //               → fill 0% (empty), shows "0", rules apply (e.g. < 40 = Low)
+                //  - n:         normal numeric value
+                //               → fill proportional, shows n, rules apply
+                const v = obj.valorPrincipal;
+                const hasMainVal = v !== undefined && v !== null && !isNaN(v as number);
                 g.setAttribute("data-lbl", obj.label);
-                // data-val: only set if user provided a metric. If empty, no number drawn.
                 g.setAttribute("data-val", hasMainVal
-                    ? String(Math.round(obj.valorPrincipal as number)) : "");
-                // data-pct: drives fill height. With no metric → 100% (full container).
-                // This makes the visual usable for non-percentage cases (status maps,
-                // planning grids, occupancy by category, etc).
+                    ? String(Math.round(v as number)) : "");
                 g.setAttribute("data-pct", hasMainVal
-                    ? String(Math.min(obj.valorPrincipal as number, 100) / 100)
+                    ? String(Math.min(Math.max(v as number, 0), 100) / 100)
                     : "1");
                 // Inline secondary field — text1 (categorical) only.
                 // Tooltip Numbers / Tooltip Text are tooltip-only (not inline).
@@ -1228,6 +1421,9 @@ export class Visual implements IVisual {
         // Compass fixed on SVG top
         this.drawCompass(this.vpW, this.vpH);
         this.drawCompassRotated();
+
+        // Show "Show items with no data" hint if suspicious rows were detected
+        this.drawHint();
     }
 
     private drawCompass(W: number, H: number): void {
@@ -1277,20 +1473,26 @@ export class Visual implements IVisual {
 
     private drawLegend(): void {
         clearNode(this.legendBar);
+        // Tip displayed when hovering with no chips active — educates about Ctrl+click
+        // without being intrusive. Only first time, dismissable via any chip click.
         this.rules.filter(r=>r.enabled).forEach(r=>{
-            const isActive = this.legendFilter === r.label;
+            const isActive = this.legendFilter.has(r.label);
             const chip=mk("div",{
                 display:"flex",alignItems:"center",gap:"4px",
                 padding:"2px 9px",borderRadius:"4px",cursor:"pointer",
                 background: isActive ? hexToRgba(r.color,.28) : hexToRgba(r.color,.10),
                 border:`1px solid ${isActive ? r.color : hexToRgba(r.color,.35)}`,
                 boxShadow: isActive ? `0 0 0 1px ${r.color}55` : "none",
+                // Single-line chip — overflow is handled by the scrollable parent
+                whiteSpace:"nowrap",
+                flexShrink:"0",
             });
             const dot=mk("div",{width:"7px",height:"7px",borderRadius:"2px",
                                  background:r.color,flexShrink:"0"});
             const lbl=mk("span",{fontSize:"8px",color:r.color,
                                   fontFamily:"'Segoe UI',sans-serif",
-                                  fontWeight:isActive?"700":"400"});
+                                  fontWeight:isActive?"700":"400",
+                                  whiteSpace:"nowrap"});
             lbl.textContent=r.label;
             chip.appendChild(dot);
             chip.appendChild(lbl);
@@ -1300,53 +1502,51 @@ export class Visual implements IVisual {
                 x.textContent="×";
                 chip.appendChild(x);
             }
+            chip.title = isActive
+                ? "Click to remove · Ctrl+click to toggle in selection"
+                : "Click to filter · Ctrl+click to add to selection";
             chip.addEventListener("click",(e)=>{
                 e.stopPropagation();
-                if(this.legendFilter===r.label){
-                    this.legendFilter=null;
-                    this.selectedIds.clear();
-                    this.selMgr.clear();
+                const isMulti = e.ctrlKey || e.metaKey;
+                if (isMulti) {
+                    // Ctrl+click — toggle this label in/out of the active selection,
+                    // keeping other active labels untouched.
+                    if (this.legendFilter.has(r.label)) {
+                        this.legendFilter.delete(r.label);
+                    } else {
+                        this.legendFilter.add(r.label);
+                    }
                 } else {
-                    this.legendFilter=r.label;
-                    this.selectedIds.clear();
-                    const matching=this.objects.filter(obj=>{
-                        const res=applyRules(this.rules,obj,this.fallback);
-                        return res.label===r.label;
-                    });
-                    if(matching.length>0){
-                        matching.forEach((obj,i)=>{
-                            this.selMgr.select(obj.selectionId, i>0);
-                        });
-                        matching.forEach(obj=>this.selectedIds.add(obj.id));
+                    // Plain click — exclusive selection. Re-click on the same active
+                    // label clears the filter (toggle).
+                    if (this.legendFilter.size === 1 && this.legendFilter.has(r.label)) {
+                        this.legendFilter.clear();
+                    } else {
+                        this.legendFilter.clear();
+                        this.legendFilter.add(r.label);
                     }
                 }
+
+                // Rebuild the cross-filter selection from the current legendFilter set
+                this.selectedIds.clear();
+                this.selMgr.clear();
+                if (this.legendFilter.size > 0) {
+                    const matching = this.objects.filter(obj => {
+                        const res = applyRules(this.rules, obj, this.fallback);
+                        return this.legendFilter.has(res.label);
+                    });
+                    matching.forEach((obj, i) => {
+                        // i>0 means "add to selection" — accumulates into multi-select
+                        this.selMgr.select(obj.selectionId, i > 0);
+                        this.selectedIds.add(obj.id);
+                    });
+                }
+
                 this.draw();
                 this.drawLegend();
             });
             this.legendBar.appendChild(chip);
         });
-
-        if(this.legendFilter){
-            const sep=mk("div",{width:"1px",height:"16px",
-                                  background:CLR.border,margin:"0 4px"});
-            this.legendBar.appendChild(sep);
-            const clrBtn=mk("button",{
-                fontFamily:"'Segoe UI',sans-serif",fontSize:"8px",
-                padding:"2px 8px",background:"none",
-                border:`1px solid ${CLR.border}`,color:CLR.dim,
-                borderRadius:"4px",cursor:"pointer",
-            });
-            clrBtn.textContent="✕ clear";
-            clrBtn.addEventListener("click",(e)=>{
-                e.stopPropagation();
-                this.legendFilter=null;
-                this.selectedIds.clear();
-                this.selMgr.clear();
-                this.draw();
-                this.drawLegend();
-            });
-            this.legendBar.appendChild(clrBtn);
-        }
     }
 
     private applyTransform(): void {
@@ -1676,7 +1876,86 @@ export class Visual implements IVisual {
         this.tooltipDiv.style.top  = `${ty}px`;
     }
 
+    /**
+     * Show a discreet help banner in the bottom-left when Main Value is bound.
+     * Power BI may filter rows where the aggregated measure is null/blank,
+     * causing objects like infrastructure-only entities to disappear from the
+     * map. The banner reminds users about the 'Show items with no data' option,
+     * which is the official Power BI fix.
+     * The banner is dismissable; once dismissed it stays dismissed for the session.
+     */
+    private drawHint(): void {
+        // Remove any existing hint first
+        const old = this.target.querySelector("#syn-hint");
+        if (old && old.parentNode) old.parentNode.removeChild(old);
+
+        if (this.hintDismissed || !this.shouldShowHint) return;
+
+        const hint = mk("div",{
+            position:"absolute",
+            bottom:"10px",
+            left:"10px",
+            maxWidth:"290px",
+            padding:"8px 12px",
+            background:CLR.panel,
+            border:`1px solid ${hexToRgba("#38bdf8", .55)}`,
+            borderLeft:`3px solid #38bdf8`,
+            borderRadius:"6px",
+            boxShadow:"0 4px 14px rgba(0,0,0,.35)",
+            fontSize:"10px",
+            color:CLR.text,
+            fontFamily:"'Segoe UI',sans-serif",
+            lineHeight:"1.4",
+            zIndex:"50",
+            display:"flex",
+            alignItems:"flex-start",
+            gap:"8px",
+        });
+        hint.id = "syn-hint";
+
+        const body = mk("div",{flex:"1",minWidth:"0"});
+        const ttl = mk("div",{
+            fontWeight:"700",
+            color:"#38bdf8",
+            fontSize:"9px",
+            textTransform:"uppercase",
+            letterSpacing:".06em",
+            marginBottom:"3px",
+        });
+        ttl.textContent = "Missing some objects?";
+        const msg = mk("div",{color:CLR.muted,fontSize:"10px"});
+        msg.innerHTML = `Right-click on <b>Object ID</b> and each <b>Layout</b> field, then enable <b>Show items with no data</b>.`;
+        body.appendChild(ttl);
+        body.appendChild(msg);
+
+        const close = mk("button",{
+            background:"none",
+            border:"none",
+            color:CLR.dim,
+            cursor:"pointer",
+            fontSize:"14px",
+            lineHeight:"1",
+            padding:"0 0 0 4px",
+            flexShrink:"0",
+        });
+        close.textContent = "✕";
+        close.title = "Dismiss";
+        close.addEventListener("click",(e)=>{
+            e.stopPropagation();
+            this.hintDismissed = true;
+            if (hint.parentNode) hint.parentNode.removeChild(hint);
+        });
+
+        hint.appendChild(body);
+        hint.appendChild(close);
+        this.target.appendChild(hint);
+    }
+
     private drawEmpty(): void {
+        // Remove hint if any was previously shown
+        const oldHint = this.target.querySelector("#syn-hint");
+        if (oldHint && oldHint.parentNode) oldHint.parentNode.removeChild(oldHint);
+
         const tg2 = this.svg.getElementById("transform-group");
         if(tg2) clearNode(tg2);
         const fl2 = this.svg.getElementById("fill-layer");

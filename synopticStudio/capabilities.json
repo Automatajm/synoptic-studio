@@ -15,8 +15,8 @@
         {
             "displayName": "Main Value",
             "name": "valorPrincipal",
-            "kind": "Measure",
-            "description": "Primary numeric measure. Drives the fill bar (0-100 = percentage). Optional — leave empty for status-only visuals."
+            "kind": "GroupingOrMeasure",
+            "description": "Primary numeric value. Drives the fill bar (0-100 = percentage). Optional — leave empty for status-only visuals."
         },
         {
             "displayName": "Text Field 1",
@@ -25,16 +25,10 @@
             "description": "Categorical field used by color rules (e.g. Status, State, Category)"
         },
         {
-            "displayName": "Tooltip Numbers",
-            "name": "tooltipNumbers",
-            "kind": "Measure",
-            "description": "Additional numeric measures to show in the tooltip. Drag multiple measures here."
-        },
-        {
-            "displayName": "Tooltip Text",
-            "name": "tooltipText",
-            "kind": "Grouping",
-            "description": "Additional text fields to show in the tooltip. Drag multiple fields here."
+            "displayName": "Tooltip Fields",
+            "name": "tooltipFields",
+            "kind": "GroupingOrMeasure",
+            "description": "Additional fields shown in the tooltip — drag any combination of measures, dates, or text fields. Order is preserved."
         },
         {
             "displayName": "Layout X",
@@ -105,29 +99,24 @@
     },
     "dataViewMappings": [
         {
-            "categorical": {
-                "categories": {
+            "table": {
+                "rows": {
                     "select": [
                         { "bind": { "to": "invernadero" } },
                         { "bind": { "to": "etiqueta" } },
                         { "bind": { "to": "campoTexto1" } },
-                        { "for":  { "in": "tooltipText" } },
+                        { "bind": { "to": "valorPrincipal" } },
+                        { "for":  { "in": "tooltipFields" } },
                         { "bind": { "to": "layoutX" } },
                         { "bind": { "to": "layoutY" } },
                         { "bind": { "to": "layoutW" } },
                         { "bind": { "to": "layoutH" } }
                     ],
                     "dataReductionAlgorithm": {
-                        "top": {
-                            "count": 1000
+                        "window": {
+                            "count": 5000
                         }
                     }
-                },
-                "values": {
-                    "select": [
-                        { "bind": { "to": "valorPrincipal" } },
-                        { "for":  { "in": "tooltipNumbers" } }
-                    ]
                 }
             }
         }
