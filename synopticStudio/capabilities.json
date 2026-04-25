@@ -93,6 +93,13 @@
                             }
                         }
                     }
+                },
+                "rotation": {
+                    "displayName": "Rotation",
+                    "description": "Internal: last selected rotation (persisted across reloads).",
+                    "type": {
+                        "numeric": true
+                    }
                 }
             }
         }

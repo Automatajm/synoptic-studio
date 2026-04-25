@@ -800,6 +800,10 @@ export class Visual implements IVisual {
     // The UI labels use DISPLAY degrees where 0° = natural orientation of this layout.
     // Conversion: internal = (display + 180) % 360   |   display = (internal + 180) % 360
     private rotation = 180; // internal 180 = display 0° (natural orientation)
+    // True once we've read the persisted rotation from PBI on first update().
+    // Prevents subsequent updates (re-renders, resizes, filter changes) from
+    // overwriting the user's in-session rotation choice.
+    private rotationLoaded = false;
     private isPanning= false;
     private panStartX= 0;
     private panStartY= 0;
@@ -815,12 +819,20 @@ export class Visual implements IVisual {
     private showValue    = true;
     private vpW          = 0;
     private vpH          = 0;
-    // When true, a discreet hint is shown about enabling "Show items with no data".
-    // Set to true when Main Value is bound (which can cause PBI to filter rows
-    // with null aggregated measures). Once the user dismisses the hint, it stays
-    // dismissed for the session via hintDismissed.
-    private shouldShowHint  = false;
-    private hintDismissed   = false;
+    // Hint banner state machine:
+    //   - shouldShowHint: turns true when missing layouts are detected, stays true
+    //     until the user explicitly dismisses it. Does NOT drop to false just
+    //     because the symptom temporarily disappears (e.g. during render glitches).
+    //   - hintDismissed: set when user clicks ✕. Suppresses the banner until the
+    //     context changes significantly enough to warrant a fresh notification.
+    //   - lastReportedMissing: snapshot of the missing-object count at the time
+    //     the user dismissed the banner. If the count later changes by more than
+    //     a small tolerance, we know the situation evolved and re-arm the hint
+    //     by resetting hintDismissed.
+    private shouldShowHint     = false;
+    private hintDismissed      = false;
+    private lastReportedMissing = -1;
+    private currentMissing      = 0;
 
     constructor(options: VisualConstructorOptions) {
         this.host   = options.host;
@@ -962,6 +974,8 @@ export class Visual implements IVisual {
                 // Re-draw to recalculate fit-scale for the new rotation
                 this.draw();
                 this.drawCompassRotated();
+                // Persist so the rotation survives close/reopen and publishing
+                this.persistRotation();
             });
             ctrlWrap.appendChild(rb);
         });
@@ -1016,6 +1030,8 @@ export class Visual implements IVisual {
             // Re-draw to recalculate fit-scale for the reset rotation
             this.draw();
             this.drawCompassRotated();
+            // Persist so the reset rotation survives close/reopen and publishing
+            this.persistRotation();
         });
         ctrlWrap.appendChild(resetBtn);
         this.svg.addEventListener("click",()=>{
@@ -1097,6 +1113,22 @@ export class Visual implements IVisual {
         this.rules = this.rules.map(r => ({...r, id: r.id || uid()}));
         this.editor.load(this.rules);
 
+        // Read persisted rotation — but ONLY on first update. After that, the
+        // user's in-session rotation wins. Without this guard, every re-render
+        // (filter, resize, theme change) would snap rotation back to whatever
+        // is on disk, undoing the user's button click.
+        if (!this.rotationLoaded) {
+            const persistedRot = this.fmtSettings.generalCard.rotation.value;
+            if (typeof persistedRot === "number" && !isNaN(persistedRot)) {
+                // Normalize to one of {0, 90, 180, 270}; reject anything else
+                const norm = ((persistedRot % 360) + 360) % 360;
+                if (norm === 0 || norm === 90 || norm === 180 || norm === 270) {
+                    this.rotation = norm;
+                }
+            }
+            this.rotationLoaded = true;
+        }
+
         this.fallback  =this.fmtSettings.generalCard.colorFallback.value.value||"#4a5560";
         this.showLabel =this.fmtSettings.generalCard.mostrarEtiqueta.value;
         this.showValue =this.fmtSettings.generalCard.mostrarValor.value;
@@ -1164,19 +1196,14 @@ export class Visual implements IVisual {
             const n = Number(v);
             return isNaN(n) || !isFinite(n) ? undefined : n;
         };
-        const layoutAt = (role: string, rowIdx: number, fallback: number): number => {
+        const layoutAt = (role: string, rowIdx: number): number | undefined => {
             const v = cellAt(role, rowIdx);
-            if (v === undefined || v === null) return fallback;
+            if (v === undefined || v === null) return undefined;
             const n = parseFloat(String(v));
-            return isNaN(n) ? fallback : n;
+            return isNaN(n) ? undefined : n;
         };
 
         this.objects = [];
-
-        // Track whether Main Value is bound — when it is, PBI may filter rows
-        // where the measure aggregates to null/blank. We surface an educational
-        // hint once per session to remind the user about "Show items with no data".
-        const hasMainValBound = colByRole["valorPrincipal"] !== undefined;
 
         for (let i = 0; i < rows.length; i++) {
             const id = strAt("invernadero", i) || String(i);
@@ -1221,17 +1248,17 @@ export class Visual implements IVisual {
                 label:          strAt("etiqueta", i) || id,
                 valorPrincipal: numAt("valorPrincipal", i),
                 campoTexto1:    strAt("campoTexto1", i),
-                layoutX:        layoutAt("layoutX", i, 0),
-                layoutY:        layoutAt("layoutY", i, 0),
-                layoutW:        layoutAt("layoutW", i, 22),
-                layoutH:        layoutAt("layoutH", i, 46),
+                layoutX:        layoutAt("layoutX", i),
+                layoutY:        layoutAt("layoutY", i),
+                layoutW:        layoutAt("layoutW", i),
+                layoutH:        layoutAt("layoutH", i),
                 tooltipFields:  merged,
                 selectionId,
             });
         }
-        // Show hint when Main Value is bound (potentially aggregated → may filter rows).
-        // The hint is dismissable; once dismissed it stays dismissed for the session.
-        this.shouldShowHint = hasMainValBound;
+        // Hint visibility is sticky — set in draw() when missing layouts are
+        // detected, and only cleared when the user explicitly dismisses it.
+        // Don't touch the flags here.
         this.draw(); this.drawLegend();
     }
 
@@ -1291,13 +1318,20 @@ export class Visual implements IVisual {
         if(oldCompass && oldCompass.parentNode) oldCompass.parentNode.removeChild(oldCompass);
 
         // Use fixed layout if objects have layoutX/layoutY, else auto-grid
-        const hasFixed = this.objects.length > 0 && this.objects[0].layoutX !== undefined;
+        // Use fixed layout if any object has layoutX defined
+        const objectsWithLayout = this.objects.filter(o =>
+            o.layoutX !== undefined && o.layoutY !== undefined);
+        const objectsMissingLayout = this.objects.length - objectsWithLayout.length;
+        const hasFixed = objectsWithLayout.length > 0;
+
         let layout: Cell[];
         if (hasFixed) {
-            // Source bounding box in layout coordinates
-            const srcW = this.objects[0].layoutX !== undefined
-                ? Math.max(...this.objects.map(o=>( o.layoutX||0)+(o.layoutW||22))) : 940;
-            const srcH = Math.max(...this.objects.map(o=>(o.layoutY||0)+(o.layoutH||46)));
+            // Source bounding box in layout coordinates — only count objects with
+            // valid coordinates. Objects without layouts are skipped from rendering.
+            const srcW = Math.max(...objectsWithLayout.map(o =>
+                (o.layoutX as number) + ((o.layoutW as number | undefined) ?? 22)));
+            const srcH = Math.max(...objectsWithLayout.map(o =>
+                (o.layoutY as number) + ((o.layoutH as number | undefined) ?? 46)));
 
             // Rotation-aware fit: at 90°/270° the visible bounding box on screen
             // has W and H swapped, so we need to fit srcH against W and srcW
@@ -1315,18 +1349,48 @@ export class Visual implements IVisual {
             // around viewport center, so center the unrotated layout on that pivot.
             const offX = (W - srcW * scale) / 2;
             const offY = (H - srcH * scale) / 2;
-            layout = this.objects.map(o => ({
+            layout = objectsWithLayout.map(o => ({
                 id: o.id,
-                x:  Math.round((o.layoutX||0) * scale + offX),
-                y:  Math.round((o.layoutY||0) * scale + offY),
-                w:  Math.round((o.layoutW||22) * scale),
-                h:  Math.round((o.layoutH||46) * scale),
+                x:  Math.round((o.layoutX as number) * scale + offX),
+                y:  Math.round((o.layoutY as number) * scale + offY),
+                w:  Math.round(((o.layoutW as number | undefined) ?? 22) * scale),
+                h:  Math.round(((o.layoutH as number | undefined) ?? 46) * scale),
             }));
         } else {
             layout = autoLayout(this.objects.map(o=>o.id),W,H);
         }
         const cm: Record<string,Cell>={};
         layout.forEach(c=>cm[c.id]=c);
+
+        // Surface the hint banner when Main Value is bound AS AN AGGREGATED measure
+        // (e.g. "Sum of X", "Avg of X"). When aggregated, PBI may filter rows where
+        // the measure is null — that's the case where users complain "Muros disappeared".
+        // Detection: the column's displayName starts with a known aggregator prefix.
+        // When the user sets the field to "Don't Summarize", the prefix is absent,
+        // and we don't show the banner (no risk of filtering).
+        const aggregatedMVPattern = /^(Sum|Average|Avg|Count|Distinct count|Min|Max|Median|Variance|Std dev|First|Last) of\s+/i;
+        const mvIsAggregated = !!this.mainValueName
+            && aggregatedMVPattern.test(this.mainValueName);
+
+        // Behavior contract:
+        //   - Show banner immediately when there's risk of filtered rows.
+        //   - Hide banner immediately when the risk is gone (user fixed it
+        //     by switching to Don't Summarize, or unbinding Main Value).
+        //   - User can also dismiss with ✕; that hides until risk reappears
+        //     after a full clean cycle.
+        const shouldRiskHint = mvIsAggregated;
+        this.currentMissing = objectsMissingLayout;
+
+        if (shouldRiskHint) {
+            // If the user previously dismissed and the situation is "still in
+            // risk state", respect that dismissal — don't keep popping back.
+            // Only show if not dismissed.
+            this.shouldShowHint = !this.hintDismissed;
+        } else {
+            // Risk is gone — hide and reset dismiss so future risk shows fresh.
+            this.shouldShowHint = false;
+            this.hintDismissed = false;
+        }
 
         this.objects.forEach(obj=>{
             const cell=cm[obj.id]; if(!cell) return;
@@ -1877,6 +1941,24 @@ export class Visual implements IVisual {
     }
 
     /**
+     * Persist the current rotation to PBI via host.persistProperties so it
+     * survives close/reopen and report publishing. Mirrors the pattern used
+     * for color rules persistence.
+     */
+    private persistRotation(): void {
+        try {
+            this.fmtSettings.generalCard.rotation.value = this.rotation;
+            this.host.persistProperties({
+                merge: [{
+                    objectName: "general",
+                    selector: null as unknown as powerbi.data.Selector,
+                    properties: { rotation: this.rotation },
+                }],
+            });
+        } catch (_e) { /* persistence is best-effort */ }
+    }
+
+    /**
      * Show a discreet help banner in the bottom-left when Main Value is bound.
      * Power BI may filter rows where the aggregated measure is null/blank,
      * causing objects like infrastructure-only entities to disappear from the
@@ -1922,7 +2004,9 @@ export class Visual implements IVisual {
             letterSpacing:".06em",
             marginBottom:"3px",
         });
-        ttl.textContent = "Missing some objects?";
+        ttl.textContent = this.currentMissing > 0
+            ? `${this.currentMissing} object${this.currentMissing === 1 ? "" : "s"} hidden`
+            : "Missing some objects?";
         const msg = mk("div",{color:CLR.muted,fontSize:"10px"});
         msg.innerHTML = `Right-click on <b>Object ID</b> and each <b>Layout</b> field, then enable <b>Show items with no data</b>.`;
         body.appendChild(ttl);
@@ -1943,6 +2027,9 @@ export class Visual implements IVisual {
         close.addEventListener("click",(e)=>{
             e.stopPropagation();
             this.hintDismissed = true;
+            // Snapshot current count so we can detect later if the situation
+            // changes significantly enough to re-arm a fresh notification.
+            this.lastReportedMissing = this.currentMissing;
             if (hint.parentNode) hint.parentNode.removeChild(hint);
         });
 

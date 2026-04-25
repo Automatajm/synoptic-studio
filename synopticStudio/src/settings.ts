@@ -48,12 +48,23 @@ class GeneralCard extends FormattingSettingsCard {
         value: { value: "#4a5560" },
     });
 
+    // Internal: persists the user's last selected rotation so it survives
+    // close/reopen and report publishing. Hidden from the Format pane —
+    // only the visual itself reads/writes it via host.persistProperties.
+    rotation = new formattingSettings.NumUpDown({
+        name: "rotation",
+        displayName: "Rotation",
+        value: 180,
+        visible: false,
+    });
+
     name:        string = "general";
     displayName: string = "General";
     slices: Array<FormattingSettingsSlice> = [
         this.mostrarEtiqueta,
         this.mostrarValor,
         this.colorFallback,
+        this.rotation,
     ];
 }
 
