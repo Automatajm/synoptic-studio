@@ -62,15 +62,18 @@ function getTheme(dark: boolean) {
     return {
         bg:      dark ? "#07090a" : "#f4f6f8",
         surface: dark ? "#0c1014" : "#ffffff",
-        panel:   dark ? "#090d10" : "#ffffff",
-        card:    dark ? "#0f1518" : "#f0f4f7",
-        border:  dark ? "#182028" : "#d0dae3",
-        hi:      dark ? "#1e2e3a" : "#c8d8e8",
+        panel:   dark ? "#0d1318" : "#ffffff",
+        card:    dark ? "#121820" : "#f0f4f7",
+        border:  dark ? "#202a34" : "#d0dae3",
+        hi:      dark ? "#2a3e50" : "#c8d8e8",
         green:   dark ? "#00e5a0" : "#008855",
-        dim:     dark ? "#3a5868" : "#6a8090",
-        text:    dark ? "#c0d8e4" : "#1a2a35",
+        // dim: label text in tooltips / secondary captions — must be clearly readable
+        dim:     dark ? "#8aa5b8" : "#4a5a6a",
+        // text: primary body text
+        text:    dark ? "#e0eef7" : "#0f1820",
         lo:      dark ? "#0e1418" : "#e8eef2",
-        muted:   dark ? "#6a8898" : "#5a7080",
+        // muted: description text (info panels, footnotes)
+        muted:   dark ? "#a0b8c8" : "#3a4a5a",
         red:     "#ef4444",
         glo:     dark ? "#00301e" : "#d4f0e4",
     };
@@ -89,6 +92,34 @@ function hexToRgba(hex: string, a: number): string {
     const g = parseInt(hex.slice(3,5),16);
     const b = parseInt(hex.slice(5,7),16);
     return `rgba(${r},${g},${b},${a})`;
+}
+
+/**
+ * Pick readable text color against a semi-transparent fill over a theme background.
+ * The fill in the visual is drawn at ~0.35 alpha, so the perceived color is a mix
+ * of the rule color and the theme background. We compute that mix, then decide
+ * text color by WCAG luminance.
+ * This handles both modes correctly: light theme with pastel fills → dark text;
+ * dark theme with muted/darkened fills → light text.
+ */
+function readableOn(hex: string, bgHex = "#07090a", alpha = 0.35,
+                    darkTxt = "#0a0f14", lightTxt = "#f4f8fb"): string {
+    if (!hex || hex.length < 7) return lightTxt;
+    // Parse rule color
+    const fr = parseInt(hex.slice(1,3),16) / 255;
+    const fg = parseInt(hex.slice(3,5),16) / 255;
+    const fb = parseInt(hex.slice(5,7),16) / 255;
+    // Parse theme background
+    const br = parseInt(bgHex.slice(1,3),16) / 255;
+    const bg = parseInt(bgHex.slice(3,5),16) / 255;
+    const bb = parseInt(bgHex.slice(5,7),16) / 255;
+    // Blend: perceived = fill * alpha + bg * (1 - alpha)
+    const mr = fr * alpha + br * (1 - alpha);
+    const mg = fg * alpha + bg * (1 - alpha);
+    const mb = fb * alpha + bb * (1 - alpha);
+    // WCAG relative luminance on the blended color
+    const lum = 0.2126*mr + 0.7152*mg + 0.0722*mb;
+    return lum >= 0.55 ? darkTxt : lightTxt;
 }
 
 function mk(tag: string, css?: Partial<CSSStyleDeclaration>): HTMLElement {
@@ -116,6 +147,63 @@ function btn(color: string, bg = "none"): Partial<CSSStyleDeclaration> {
 }
 
 // ── Color engine ──────────────────────────────────────────────────────────────
+
+/**
+ * Default rules seeded on first use. Generic 3-level semaphore on Main Value:
+ *  - Low     (< 40)    → red
+ *  - Medium  (40–70)   → amber
+ *  - High    (≥ 70)    → green
+ * Users can change everything in the rule editor; these are just a starting point
+ * so a freshly-added visual looks meaningful instead of a wall of gray.
+ */
+function defaultRules(): ColorRule[] {
+    return [
+        { id: uid(), field: "valorPrincipal", op: "lt",      value: "40",    value2: "",
+          color: "#ef4444", label: "Low",    enabled: true },
+        { id: uid(), field: "valorPrincipal", op: "between", value: "40,70", value2: "",
+          color: "#f59e0b", label: "Medium", enabled: true },
+        { id: uid(), field: "valorPrincipal", op: "gte",     value: "70",    value2: "",
+          color: "#00e5a0", label: "High",   enabled: true },
+    ];
+}
+
+/**
+ * Parse a "between" range from the rule.value string. Tolerant format:
+ * accepts "3,8", "[3,8]", "(3,8)", "3..8", "3 - 8", with optional decimals.
+ * Falls back to [rule.value, rule.value2] for backward compatibility with
+ * rules persisted before this change.
+ * Returns [min, max] (auto-sorts) or null if unparseable.
+ */
+function parseBetween(value: string, value2?: string): [number, number] | null {
+    if (value !== undefined && value !== null && String(value).trim() !== "") {
+        const s = String(value).trim()
+            .replace(/^[\[\(]+/, "")
+            .replace(/[\]\)]+$/, "");
+        const parts = s.split(/\s*(?:,|\.\.|\s+to\s+|\s-\s|;)\s*/)
+                       .map(p => p.trim())
+                       .filter(p => p.length > 0);
+        if (parts.length >= 2) {
+            const a = parseFloat(parts[0]);
+            const b = parseFloat(parts[1]);
+            if (!isNaN(a) && !isNaN(b)) {
+                return a <= b ? [a, b] : [b, a];
+            }
+        }
+        if (parts.length === 1 && value2) {
+            const a = parseFloat(parts[0]);
+            const b = parseFloat(value2);
+            if (!isNaN(a) && !isNaN(b)) return a <= b ? [a, b] : [b, a];
+        }
+    }
+    // Legacy fallback: two separate fields
+    if (value2 !== undefined) {
+        const a = parseFloat(value || "");
+        const b = parseFloat(value2);
+        if (!isNaN(a) && !isNaN(b)) return a <= b ? [a, b] : [b, a];
+    }
+    return null;
+}
+
 function evalRule(rule: ColorRule, obj: SynopticObject): boolean {
     const map: Record<string,string|number|undefined> = {
         campoTexto1:obj.campoTexto1, campoTexto2:obj.campoTexto2,
@@ -123,7 +211,7 @@ function evalRule(rule: ColorRule, obj: SynopticObject): boolean {
     };
     const raw = map[rule.field];
     if (raw === undefined || raw === null) return false;
-    const rv = parseFloat(rule.value), rv2 = parseFloat(rule.value2||"0");
+    const rv = parseFloat(rule.value);
     const nv = typeof raw==="number" ? raw : parseFloat(String(raw));
     switch(rule.op){
         case "eq":      return String(raw)===String(rule.value);
@@ -132,7 +220,11 @@ function evalRule(rule: ColorRule, obj: SynopticObject): boolean {
         case "gte":     return nv>=rv;
         case "lt":      return nv<rv;
         case "lte":     return nv<=rv;
-        case "between": return nv>=rv&&nv<=rv2;
+        case "between": {
+            const range = parseBetween(rule.value, rule.value2);
+            if (!range) return false;
+            return nv >= range[0] && nv <= range[1];
+        }
         default:        return false;
     }
 }
@@ -164,18 +256,22 @@ function autoLayout(ids: string[], W: number, H: number): Cell[] {
 function buildTooltip(obj: SynopticObject, color: string, ruleLabel: string,
                       fn: Record<string,string>): HTMLElement {
     const wrap = mk("div",{
-        background:CLR.panel, border:`1px solid ${color}55`, borderRadius:"9px",
-        padding:"12px 14px", minWidth:"180px", fontFamily:"'Segoe UI',sans-serif",
-        boxShadow:"0 8px 28px rgba(0,0,0,.6)", pointerEvents:"none",
+        background:CLR.panel, border:`1px solid ${color}66`, borderRadius:"10px",
+        padding:"13px 16px", minWidth:"200px", fontFamily:"'Segoe UI',sans-serif",
+        boxShadow:"0 10px 32px rgba(0,0,0,.55)", pointerEvents:"none",
     });
     const hdr = mk("div",{display:"flex",justifyContent:"space-between",
-                           alignItems:"flex-start",marginBottom:"8px"});
-    const ttl = mk("div",{color,fontWeight:"700",fontSize:"13px",letterSpacing:".04em"});
+                           alignItems:"center",marginBottom:"10px",gap:"10px"});
+    const ttl = mk("div",{color:color,fontWeight:"700",fontSize:"14px",letterSpacing:".03em"});
     ttl.textContent = obj.label||obj.id;
+    // Badge: solid background of the rule color, text picked for contrast against that
+    // bg — readable in every theme and every rule color.
+    const badgeTxt = readableOn(color, CLR.panel, 1);
     const bdg = mk("span",{
-        background:hexToRgba(color,.15), border:`1px solid ${hexToRgba(color,.4)}`,
-        borderRadius:"4px", padding:"1px 7px", fontSize:"8px",
-        color, fontWeight:"700", marginLeft:"8px", whiteSpace:"nowrap",
+        background:color, border:"none",
+        borderRadius:"4px", padding:"2px 9px", fontSize:"9px",
+        color:badgeTxt, fontWeight:"700", letterSpacing:".04em",
+        textTransform:"uppercase", whiteSpace:"nowrap", flexShrink:"0",
     });
     bdg.textContent = ruleLabel;
     hdr.appendChild(ttl); hdr.appendChild(bdg); wrap.appendChild(hdr);
@@ -183,10 +279,10 @@ function buildTooltip(obj: SynopticObject, color: string, ruleLabel: string,
     const tbl = mk("table",{borderCollapse:"collapse",width:"100%"});
     const row = (lbl: string, val: string|number|undefined) => {
         if (val===undefined||val===null) return;
-        const tr=mk("tr"), td1=mk("td",{color:CLR.dim,fontSize:"9px",
-            textTransform:"uppercase",letterSpacing:".06em",
-            padding:"2px 8px 2px 0",whiteSpace:"nowrap"}),
-        td2=mk("td",{color:CLR.text,fontSize:"10px",fontWeight:"600",padding:"2px 0"});
+        const tr=mk("tr"), td1=mk("td",{color:CLR.dim,fontSize:"10px",
+            textTransform:"uppercase",letterSpacing:".06em",fontWeight:"600",
+            padding:"3px 12px 3px 0",whiteSpace:"nowrap"}),
+        td2=mk("td",{color:CLR.text,fontSize:"11px",fontWeight:"600",padding:"3px 0"});
         td1.textContent=lbl; td2.textContent=String(val);
         tr.appendChild(td1); tr.appendChild(td2); tbl.appendChild(tr);
     };
@@ -374,6 +470,8 @@ class RulesEditor {
             display:"none",flexWrap:"wrap",gap:"3px",width:"130px",
             boxShadow:"0 8px 24px rgba(0,0,0,.9)",
         });
+        // Tag this popup so we can find and close sibling popups
+        pop.setAttribute("data-palette-popup", "1");
         PALETTE.forEach(h=>{
             const s=mk("div",{
                 width:"18px",height:"18px",borderRadius:"3px",background:h,cursor:"pointer",
@@ -388,7 +486,13 @@ class RulesEditor {
         cd.appendChild(pop);
         cd.addEventListener("click",(e)=>{
             e.stopPropagation();
-            pop.style.display=pop.style.display==="none"?"flex":"none";
+            const opening = pop.style.display === "none";
+            // Close every other open palette before opening this one — prevents
+            // multiple popups stacking on top of each other.
+            document.querySelectorAll('[data-palette-popup="1"]').forEach(el => {
+                if (el !== pop) (el as HTMLElement).style.display = "none";
+            });
+            pop.style.display = opening ? "flex" : "none";
         });
         row.appendChild(cd);
 
@@ -414,21 +518,36 @@ class RulesEditor {
         os.addEventListener("change",()=>{ rule.op=os.value; this.renderList(); });
         row.appendChild(os);
 
-        // Value
-        const vi=mk("input",{...INP,flex:"1",minWidth:"0"}) as HTMLInputElement;
-        vi.value=rule.value; vi.placeholder="value";
-        vi.addEventListener("input",()=>rule.value=vi.value);
-        row.appendChild(vi);
-
-        // Value2
-        if(rule.op==="between"){
-            const sep=mk("span",{color:CLR.dim,fontSize:"8px",flexShrink:"0"});
-            sep.textContent="–"; row.appendChild(sep);
-            const v2=mk("input",{...INP,flex:"1",minWidth:"0"}) as HTMLInputElement;
-            v2.value=rule.value2||""; v2.placeholder="max";
-            v2.addEventListener("input",()=>rule.value2=v2.value);
-            row.appendChild(v2);
+        // Value — placeholder adapts to the operator.
+        // For "between" we use a single input that accepts "a, b" (tolerant).
+        const vi = mk("input",{...INP,flex:"1",minWidth:"0"}) as HTMLInputElement;
+        if (rule.op === "between") {
+            // If coming from the old two-field format, coalesce into "a, b"
+            if (!rule.value && rule.value2) {
+                rule.value = rule.value2;
+                rule.value2 = "";
+            } else if (rule.value && rule.value2 && !rule.value.includes(",")) {
+                rule.value = `${rule.value}, ${rule.value2}`;
+                rule.value2 = "";
+            }
+            vi.placeholder = "e.g. 3, 8";
+        } else if (rule.op === "eq" || rule.op === "neq") {
+            vi.placeholder = "text value";
+        } else {
+            vi.placeholder = "number";
         }
+        vi.value = rule.value;
+        const validateBetween = () => {
+            if (rule.op !== "between") { vi.style.borderColor = CLR.border; return; }
+            const ok = parseBetween(vi.value) !== null;
+            vi.style.borderColor = ok || vi.value.trim() === "" ? CLR.border : CLR.red;
+        };
+        vi.addEventListener("input", () => {
+            rule.value = vi.value;
+            validateBetween();
+        });
+        validateBetween();
+        row.appendChild(vi);
 
         // Label
         const li=mk("input",{...INP,width:"78px",flexShrink:"0"}) as HTMLInputElement;
@@ -591,7 +710,17 @@ export class Visual implements IVisual {
         // Editor
         this.editor=new RulesEditor(this.target,(rules)=>{
             this.rules=rules;
-            this.fmtSettings.reglaColorCard.reglasJson.value=JSON.stringify(rules);
+            const json = JSON.stringify(rules);
+            this.fmtSettings.reglaColorCard.reglasJson.value = json;
+            // CRITICAL: persist to PBI so rules survive reload / close-reopen.
+            // Without this the rules only live in memory and get lost.
+            this.host.persistProperties({
+                merge: [{
+                    objectName: "reglas",
+                    selector: null as unknown as powerbi.data.Selector,
+                    properties: { reglasJson: json },
+                }],
+            });
             this.draw(); this.drawLegend();
         });
 
@@ -732,9 +861,30 @@ export class Visual implements IVisual {
         this.vpH=options.viewport.height-54;
         this.svg.setAttribute("viewBox",`0 0 ${this.vpW} ${this.vpH}`);
 
-        try { this.rules=JSON.parse(this.fmtSettings.reglaColorCard.reglasJson.value||"[]"); }
-        catch { this.rules=[]; }
-        this.rules=this.rules.map(r=>({...r,id:r.id||uid()}));
+        // Parse persisted rules. Distinguish between:
+        //  - Never configured (value is empty/null)  → inject defaults
+        //  - User cleared all rules (value is "[]")  → respect empty state
+        const persistedRaw = this.fmtSettings.reglaColorCard.reglasJson.value;
+        const neverConfigured = persistedRaw === undefined
+                             || persistedRaw === null
+                             || String(persistedRaw).trim() === "";
+        if (neverConfigured) {
+            this.rules = defaultRules();
+            // Persist defaults so user sees same rules on reopen
+            const seedJson = JSON.stringify(this.rules);
+            this.fmtSettings.reglaColorCard.reglasJson.value = seedJson;
+            this.host.persistProperties({
+                merge: [{
+                    objectName: "reglas",
+                    selector: null as unknown as powerbi.data.Selector,
+                    properties: { reglasJson: seedJson },
+                }],
+            });
+        } else {
+            try { this.rules = JSON.parse(String(persistedRaw) || "[]"); }
+            catch { this.rules = []; }
+        }
+        this.rules = this.rules.map(r => ({...r, id: r.id || uid()}));
         this.editor.load(this.rules);
 
         this.fallback  =this.fmtSettings.generalCard.colorFallback.value.value||"#52626a";
@@ -876,11 +1026,28 @@ export class Visual implements IVisual {
 
             // Store fill + label metadata for upright rendering in fill-layer and labels-group
             if(!dimmed){
+                const hasMainVal = obj.valorPrincipal !== undefined
+                                && obj.valorPrincipal !== null
+                                && !isNaN(obj.valorPrincipal as number);
                 g.setAttribute("data-lbl", obj.label);
-                g.setAttribute("data-val", obj.valorPrincipal!==undefined
-                    ? String(Math.round(obj.valorPrincipal)) : "");
-                g.setAttribute("data-pct", obj.valorPrincipal!==undefined
-                    ? String(Math.min(obj.valorPrincipal,100)/100) : "0");
+                // data-val: only set if user provided a metric. If empty, no number drawn.
+                g.setAttribute("data-val", hasMainVal
+                    ? String(Math.round(obj.valorPrincipal as number)) : "");
+                // data-pct: drives fill height. With no metric → 100% (full container).
+                // This makes the visual usable for non-percentage cases (status maps,
+                // planning grids, occupancy by category, etc).
+                g.setAttribute("data-pct", hasMainVal
+                    ? String(Math.min(obj.valorPrincipal as number, 100) / 100)
+                    : "1");
+                // Secondary inline fields — text1 (categorical) and val2 (secondary measure)
+                g.setAttribute("data-txt1", obj.campoTexto1 ? String(obj.campoTexto1) : "");
+                g.setAttribute("data-val2", obj.valor2!==undefined && obj.valor2!==null
+                    ? (typeof obj.valor2==="number"
+                        ? (Math.abs(obj.valor2) >= 1000
+                            ? obj.valor2.toLocaleString("en-US")
+                            : String(Math.round(obj.valor2 * 10) / 10))
+                        : String(obj.valor2))
+                    : "");
                 g.setAttribute("data-cx",  String(cell.x+cell.w/2));
                 g.setAttribute("data-cy",  String(cell.y+cell.h/2));
                 g.setAttribute("data-cw",  String(cell.w));
@@ -1118,8 +1285,12 @@ export class Visual implements IVisual {
                 const pct = parseFloat(g2.getAttribute("data-pct")||"0");
                 const lbl = g2.getAttribute("data-lbl")||"";
                 const val = g2.getAttribute("data-val")||"";
+                const txt1 = g2.getAttribute("data-txt1")||"";
+                const val2 = g2.getAttribute("data-val2")||"";
                 const col = g2.getAttribute("data-col")||CLR.text;
-                const hasVal = this.showValue && val !== "";
+                const hasVal  = this.showValue && val  !== "";
+                const hasTxt1 = txt1 !== "";
+                const hasVal2 = val2 !== "";
 
                 // When rotated 90°/270°, the visible bounding box of the cell swaps W/H.
                 // The fill and labels are drawn axis-aligned in viewport space, so we
@@ -1130,16 +1301,16 @@ export class Visual implements IVisual {
                 const gch = swap ? gcwRaw : gchRaw;
 
                 // Project cell center into viewport space — this is where the shape
-                // visually sits after rotation. We draw the fill axis-aligned at this
-                // screen position so gravity is always "down" for the viewer.
+                // visually sits after rotation.
                 const center = rotPt2(gcx, gcy);
 
                 // ── Gravity-aware fill (always bottom-up in viewport space) ──────
+                // Draw the fill axis-aligned at screen position so gravity is
+                // always "down" for the viewer, regardless of map rotation.
                 if(pct > 0){
                     const fillW = gcw - 2;
                     const fillHFull = gch - 2;
                     const fh = fillHFull * pct;
-                    // Rect anchored at bottom of cell, growing up
                     const fx = center.x - fillW/2;
                     const fy = center.y + fillHFull/2 - fh;
                     const fr = svgEl("rect",{
@@ -1162,82 +1333,229 @@ export class Visual implements IVisual {
                     this.fillLayer!.appendChild(ab);
                 }
 
-                // ── Labels: horizontal cells → inline (label | value), vertical → stacked
+                // ── Shared rendering helpers ─────────────────────────────────
+                const mkText = (x:number, y:number, text:string, size:number,
+                                weight:string, fill:string,
+                                halo:string, haloW:number, haloOp:number,
+                                anchor:string = "middle") => {
+                    const t = svgEl("text",{
+                        x:String(x), y:String(y),
+                        "text-anchor":anchor, "dominant-baseline":"middle",
+                        "font-size":String(size),
+                        "font-family":"Segoe UI,sans-serif","font-weight":weight,
+                        fill:fill,
+                        stroke:halo,
+                        "stroke-width":String(haloW),
+                        "stroke-linejoin":"round",
+                        "stroke-opacity":String(haloOp),
+                        "paint-order":"stroke fill",
+                    });
+                    t.setAttribute("pointer-events","none");
+                    t.textContent = text;
+                    this.labelsGroup!.appendChild(t);
+                };
+
+                // Pre-compute text colors + halos used across layouts
+                const valTxt   = readableOn(col, CLR.bg, 0.35);
+                const valHalo  = valTxt === "#0a0f14" ? "#f4f8fb" : "#0a0f14";
+
+                // ── Layout decision ──────────────────────────────────────────
+                // isHorizontal: cell is meaningfully wider than tall → inline layout
+                // Otherwise: stacked layout (label on top, value below)
                 const isHorizontal = gcw > gch * 1.2;
 
                 if (isHorizontal) {
-                    // Inline layout: LABEL  VALUE — takes advantage of wide footprint
-                    const fs  = Math.max(5, Math.min(11, gch * 0.48));
-                    const vfs = Math.max(5, Math.min(10, gch * 0.42));
-                    const maxC = Math.max(2, Math.floor(gcw / fs * 0.9));
-                    const ltxt = lbl.length>maxC ? lbl.slice(0,maxC-1)+"…" : lbl;
-
-                    // Position label left-of-center, value right-of-center
-                    const lblX = hasVal ? center.x - gcw * 0.08 : center.x;
-                    const valX = center.x + gcw * 0.28;
+                    // ═════════════════════════════════════════════════════════
+                    // INLINE LAYOUT with 4-level progressive collapse
+                    //
+                    // Level 4 (wide ≥160px):  Label │ Text1 │ Val2 │ MainVal
+                    // Level 3 (110–159px):    Label │ Text1 │ MainVal    (drop Val2)
+                    // Level 2 ( 75–109px):    Label │ MainVal            (drop Text1)
+                    // Level 1 ( <75px):       MainVal only (centered)
+                    // ═════════════════════════════════════════════════════════
                     const yMid = center.y;
 
-                    if(this.showLabel && lbl){
-                        const t2 = svgEl("text",{
-                            x:String(lblX), y:String(yMid),
-                            "text-anchor":hasVal ? "end" : "middle",
-                            "dominant-baseline":"middle",
-                            "font-size":String(fs),
-                            "font-family":"Segoe UI,sans-serif","font-weight":"700",
-                            fill:CLR.text,
+                    // Effective width available for text (leave padding on both sides)
+                    const effW = gcw - 10;
+
+                    // Pick collapse level
+                    let level = 1;
+                    if      (effW >= 150 && hasTxt1 && hasVal2) level = 4;
+                    else if (effW >= 100 && hasTxt1)            level = 3;
+                    else if (effW >=  70)                       level = 2;
+                    else                                        level = 1;
+
+                    // Font sizes scale with cell height (so text fits vertically)
+                    const fsLbl  = Math.max(5, Math.min(12, gch * 0.50));
+                    const fsTxt  = Math.max(5, Math.min(10, gch * 0.38));
+                    const fsVal2 = Math.max(5, Math.min(10, gch * 0.40));
+                    const fsVal  = Math.max(5, Math.min(11, gch * 0.46));
+
+                    // Truncation per field (chars approx based on font vs field width)
+                    const trunc = (s:string, maxChars:number) =>
+                        s.length > maxChars ? s.slice(0, Math.max(1, maxChars-1)) + "…" : s;
+
+                    const drawSep = (x:number) => {
+                        const s = svgEl("line",{
+                            x1:String(x), y1:String(yMid - gch*0.25),
+                            x2:String(x), y2:String(yMid + gch*0.25),
+                            stroke:CLR.border, "stroke-width":"0.8",
+                            "stroke-opacity":"0.55",
                         });
-                        t2.setAttribute("pointer-events","none");
-                        t2.textContent = ltxt;
-                        this.labelsGroup!.appendChild(t2);
-                    }
-                    if(hasVal){
-                        const vt2 = svgEl("text",{
-                            x:String(valX), y:String(yMid),
-                            "text-anchor":"middle","dominant-baseline":"middle",
-                            "font-size":String(vfs),
-                            "font-family":"Segoe UI,sans-serif","font-weight":"600",
-                            fill:hexToRgba(col,.95),
-                        });
-                        vt2.setAttribute("pointer-events","none");
-                        vt2.textContent = val;
-                        this.labelsGroup!.appendChild(vt2);
+                        s.setAttribute("pointer-events","none");
+                        this.labelsGroup!.appendChild(s);
+                    };
+
+                    if (level === 1) {
+                        // Tightest layout — show LABEL (identity wins).
+                        // Value is complementary; if user wants it, they have width
+                        // for level 2+. Tooltip always has the full data.
+                        if (this.showLabel && lbl) {
+                            mkText(center.x, yMid,
+                                   trunc(lbl, Math.max(2, Math.floor(effW / fsLbl * 1.5))),
+                                   fsLbl, "700", CLR.text, CLR.bg, 1.2, 0.5);
+                        } else if (hasVal) {
+                            mkText(center.x, yMid, val, fsVal, "800",
+                                   valTxt, valHalo, 1.2, 0.35);
+                        }
+                    } else if (level === 2) {
+                        // Label │ MainVal — classic 2-field
+                        const leftX  = center.x - gcw * 0.30;
+                        const rightX = center.x + gcw * 0.30;
+                        const sepX   = center.x;
+
+                        if (this.showLabel && lbl) {
+                            const maxC = Math.max(2, Math.floor((gcw * 0.5) / fsLbl * 1.6));
+                            mkText(leftX, yMid, trunc(lbl, maxC), fsLbl, "700",
+                                   CLR.text, CLR.bg, 1.2, 0.5, "middle");
+                        }
+                        if (hasVal) {
+                            drawSep(sepX);
+                            mkText(rightX, yMid, val, fsVal, "800",
+                                   valTxt, valHalo, 1.2, 0.35, "middle");
+                        }
+                    } else if (level === 3) {
+                        // Label │ Text1 │ MainVal — 3 fields
+                        const x1 = center.x - gcw * 0.35;  // Label
+                        const x2 = center.x;                // Text1
+                        const x3 = center.x + gcw * 0.35;  // MainVal
+                        const sep1X = center.x - gcw * 0.17;
+                        const sep2X = center.x + gcw * 0.17;
+
+                        if (this.showLabel && lbl) {
+                            const maxC = Math.max(2, Math.floor((gcw * 0.30) / fsLbl * 1.6));
+                            mkText(x1, yMid, trunc(lbl, maxC), fsLbl, "700",
+                                   CLR.text, CLR.bg, 1.2, 0.5, "middle");
+                        }
+                        drawSep(sep1X);
+                        const maxCTxt = Math.max(2, Math.floor((gcw * 0.30) / fsTxt * 1.7));
+                        mkText(x2, yMid, trunc(txt1, maxCTxt), fsTxt, "500",
+                               CLR.dim, CLR.bg, 0.8, 0.35, "middle");
+                        if (hasVal) {
+                            drawSep(sep2X);
+                            mkText(x3, yMid, val, fsVal, "800",
+                                   valTxt, valHalo, 1.2, 0.35, "middle");
+                        }
+                    } else {
+                        // Level 4 — all 4 fields: Label │ Text1 │ Val2 │ MainVal
+                        const x1 = center.x - gcw * 0.38;  // Label
+                        const x2 = center.x - gcw * 0.13;  // Text1
+                        const x3 = center.x + gcw * 0.13;  // Val2
+                        const x4 = center.x + gcw * 0.38;  // MainVal
+                        const sep1X = center.x - gcw * 0.25;
+                        const sep2X = center.x;
+                        const sep3X = center.x + gcw * 0.25;
+
+                        if (this.showLabel && lbl) {
+                            const maxC = Math.max(2, Math.floor((gcw * 0.22) / fsLbl * 1.6));
+                            mkText(x1, yMid, trunc(lbl, maxC), fsLbl, "700",
+                                   CLR.text, CLR.bg, 1.2, 0.5, "middle");
+                        }
+                        drawSep(sep1X);
+                        const maxCTxt = Math.max(2, Math.floor((gcw * 0.22) / fsTxt * 1.7));
+                        mkText(x2, yMid, trunc(txt1, maxCTxt), fsTxt, "500",
+                               CLR.dim, CLR.bg, 0.8, 0.35, "middle");
+                        drawSep(sep2X);
+                        const maxCVal2 = Math.max(2, Math.floor((gcw * 0.22) / fsVal2 * 1.7));
+                        mkText(x3, yMid, trunc(val2, maxCVal2), fsVal2, "600",
+                               CLR.text, CLR.bg, 1.0, 0.35, "middle");
+                        if (hasVal) {
+                            drawSep(sep3X);
+                            mkText(x4, yMid, val, fsVal, "800",
+                                   valTxt, valHalo, 1.2, 0.35, "middle");
+                        }
                     }
                 } else {
-                    // Stacked layout: label on top, value on bottom (vertical cells)
-                    const fs  = Math.max(5, Math.min(10, gcw/3.5));
-                    const vfs = Math.max(5, Math.min(9,  gcw/4.2));
-                    const maxC = Math.max(2, Math.floor(gcw/fs*1.6));
-                    const ltxt = lbl.length>maxC ? lbl.slice(0,maxC-1)+"…" : lbl;
-                    const labelOffY = -(gch * 0.32);
-                    const valueOffY =  (gch * 0.32);
-                    const lblX = center.x;
-                    const lblY = center.y + (hasVal && this.showLabel ? labelOffY : 0);
-                    const valX = center.x;
-                    const valY = center.y + (this.showLabel ? valueOffY : valueOffY);
+                    // ═════════════════════════════════════════════════════════
+                    // STACKED LAYOUT (cell is vertical, typically 0°/180°)
+                    //
+                    // Information hierarchy (most important first):
+                    //   1. LABEL (object identity)        — always shown if it fits
+                    //   2. MAIN VALUE (the metric)        — shown if there's room
+                    //   3. VAL2 (secondary metric)        — only on tall cells
+                    //
+                    // Rationale: in a synoptic map the user needs to identify WHICH
+                    // object they are looking at before its metric. The fill color
+                    // already communicates state via rules. Text1 is therefore
+                    // redundant inside the cell (it's in the legend + the color).
+                    // ═════════════════════════════════════════════════════════
+                    const fsLbl = Math.max(5, Math.min(10, gcw/3.5));
+                    const fsSub = Math.max(4, Math.min(8,  gcw/5.2));
+                    const fsVal = Math.max(5, Math.min(9,  gcw/4.2));
+                    const maxC  = Math.max(2, Math.floor(gcw/fsLbl*1.6));
+                    const ltxt  = lbl.length>maxC ? lbl.slice(0,maxC-1)+"…" : lbl;
 
-                    if(this.showLabel && lbl){
-                        const t2 = svgEl("text",{
-                            x:String(lblX), y:String(lblY),
-                            "text-anchor":"middle","dominant-baseline":"middle",
-                            "font-size":String(fs),
-                            "font-family":"Segoe UI,sans-serif","font-weight":"700",
-                            fill:CLR.text,
-                        });
-                        t2.setAttribute("pointer-events","none");
-                        t2.textContent = ltxt;
-                        this.labelsGroup!.appendChild(t2);
+                    // Decide what fits based on cell height. Each text line needs
+                    // ~1.4× its font size to render comfortably.
+                    const lineLbl = fsLbl * 1.4;
+                    const lineSub = fsSub * 1.4;
+                    const lineVal = fsVal * 1.4;
+
+                    const showLbl = this.showLabel && !!lbl;
+                    const wantSub = hasVal2 && gch >= 48;
+                    // Show value only if user provided a metric (data-val is empty
+                    // when valorPrincipal isn't bound — see data-attr setter above).
+                    const wantVal = hasVal;
+
+                    // Pick the richest layout that fits in the available height.
+                    // Always prefer Label over Value when only one fits.
+                    let layout: "lbl_sub_val" | "lbl_val" | "lbl_only" | "val_only" | "none" = "none";
+                    if (showLbl && wantSub && wantVal && gch >= lineLbl + lineSub + lineVal + 4) {
+                        layout = "lbl_sub_val";
+                    } else if (showLbl && wantVal && gch >= lineLbl + lineVal + 2) {
+                        layout = "lbl_val";
+                    } else if (showLbl) {
+                        // Cell too small for value — just show the label (identity wins)
+                        layout = "lbl_only";
+                    } else if (wantVal) {
+                        layout = "val_only";
                     }
-                    if(hasVal){
-                        const vt2 = svgEl("text",{
-                            x:String(valX), y:String(valY),
-                            "text-anchor":"middle","dominant-baseline":"middle",
-                            "font-size":String(vfs),
-                            "font-family":"Segoe UI,sans-serif",
-                            fill:hexToRgba(col,.9),
-                        });
-                        vt2.setAttribute("pointer-events","none");
-                        vt2.textContent = val;
-                        this.labelsGroup!.appendChild(vt2);
+
+                    if (layout === "lbl_sub_val") {
+                        mkText(center.x, center.y - gch * 0.30, ltxt, fsLbl, "700",
+                               CLR.text, CLR.bg, 1.2, 0.5, "middle");
+                        const maxSub = Math.max(2, Math.floor(gcw/fsSub*1.8));
+                        const subClipped = val2.length > maxSub
+                            ? val2.slice(0, maxSub-1) + "…"
+                            : val2;
+                        mkText(center.x, center.y, subClipped, fsSub, "500",
+                               CLR.dim, CLR.bg, 0.8, 0.35, "middle");
+                        mkText(center.x, center.y + gch * 0.30, val, fsVal, "800",
+                               valTxt, valHalo, 1.2, 0.35, "middle");
+                    } else if (layout === "lbl_val") {
+                        mkText(center.x, center.y - gch * 0.22, ltxt, fsLbl, "700",
+                               CLR.text, CLR.bg, 1.2, 0.5, "middle");
+                        mkText(center.x, center.y + gch * 0.22, val, fsVal, "800",
+                               valTxt, valHalo, 1.2, 0.35, "middle");
+                    } else if (layout === "lbl_only") {
+                        // Identity wins — only label, centered. Smaller font if needed
+                        // so it fits even on tiny cells.
+                        const fsTight = Math.max(5, Math.min(fsLbl, gch * 0.55));
+                        mkText(center.x, center.y, ltxt, fsTight, "700",
+                               CLR.text, CLR.bg, 1.2, 0.5, "middle");
+                    } else if (layout === "val_only") {
+                        mkText(center.x, center.y, val, fsVal, "800",
+                               valTxt, valHalo, 1.2, 0.35, "middle");
                     }
                 }
             });
@@ -1259,13 +1577,32 @@ export class Visual implements IVisual {
     }
 
     private positionTip(e: MouseEvent): void {
-        const cr=this.wrapper.getBoundingClientRect();
-        let tx=e.clientX-cr.left+14, ty=e.clientY-cr.top-10;
-        const tw=this.tooltipDiv.offsetWidth||200, th=this.tooltipDiv.offsetHeight||120;
-        if(tx+tw>cr.width)  tx=e.clientX-cr.left-tw-14;
-        if(ty+th>cr.height) ty=e.clientY-cr.top-th-10;
-        this.tooltipDiv.style.left=`${Math.max(0,tx)}px`;
-        this.tooltipDiv.style.top=`${Math.max(0,ty)}px`;
+        // Quadrant-aware placement so the tooltip never occludes adjacent cells.
+        // It appears in the OPPOSITE quadrant of where the cursor is:
+        //  - cursor top-left    → tooltip bottom-right
+        //  - cursor top-right   → tooltip bottom-left
+        //  - cursor bottom-left → tooltip top-right
+        //  - cursor bottom-right → tooltip top-left
+        const cr = this.wrapper.getBoundingClientRect();
+        const cx = e.clientX - cr.left;
+        const cy = e.clientY - cr.top;
+        const tw = this.tooltipDiv.offsetWidth  || 220;
+        const th = this.tooltipDiv.offsetHeight || 140;
+        const gap = 16;
+
+        // Decide horizontal side based on cursor position within the visual
+        const onRight  = cx > cr.width  * 0.5;
+        const onBottom = cy > cr.height * 0.5;
+
+        let tx = onRight  ? cx - tw - gap : cx + gap;
+        let ty = onBottom ? cy - th - gap : cy + gap;
+
+        // Clamp within visual bounds so the tooltip never overflows
+        tx = Math.max(4, Math.min(cr.width  - tw - 4, tx));
+        ty = Math.max(4, Math.min(cr.height - th - 4, ty));
+
+        this.tooltipDiv.style.left = `${tx}px`;
+        this.tooltipDiv.style.top  = `${ty}px`;
     }
 
     private drawEmpty(): void {
