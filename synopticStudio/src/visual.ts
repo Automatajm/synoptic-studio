@@ -1105,17 +1105,22 @@ export class Visual implements IVisual {
         }, {passive:false, capture:true});
 
         // Pan — mousedown
+        // PAN_FIX_v1
         this.wrapper.addEventListener("mousedown",(e:MouseEvent)=>{
-            // Pan on background click (left button on blank canvas)
-                if((e.target as Element)===this.svg||
-                   (e.target as Element)===this.svg.firstElementChild){
-                    this.isPanning=true;
-                    this.panStartX=e.clientX;
-                    this.panStartY=e.clientY;
-                    this.panOriginX=this.panX;
-                    this.panOriginY=this.panY;
-                    this.wrapper.style.cursor="grabbing";
-                }
+            // Pan only when clicking on truly empty background — the SVG
+            // root itself or the bg-rect (id-based check, robust to layer
+            // changes like the <defs> introduced for polygon clipPaths).
+            const target = e.target as Element;
+            const targetId = target && target.getAttribute ? target.getAttribute("id") : null;
+            const isBackground = target === this.svg || targetId === "bg-rect";
+            if (isBackground) {
+                this.isPanning=true;
+                this.panStartX=e.clientX;
+                this.panStartY=e.clientY;
+                this.panOriginX=this.panX;
+                this.panOriginY=this.panY;
+                this.wrapper.style.cursor="grabbing";
+            }
         });
         window.addEventListener("mousemove",(e:MouseEvent)=>{
             if(!this.isPanning) return;
