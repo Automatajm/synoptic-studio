@@ -6,3 +6,9 @@ webpack.statistics.*.html
 .DS_Store
 Thumbs.db
 *.log
+
+# Patcher backups
+*.bak
+*.clip.bak
+*.clipv2.bak
+*.lint.bak
