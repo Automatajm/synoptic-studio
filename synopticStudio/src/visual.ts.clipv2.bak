@@ -1544,10 +1544,11 @@ export class Visual implements IVisual {
             const g=svgEl("g",{});
             g.setAttribute("style","cursor:pointer");
 
-            // CLIP_POLYGON_FILLS_v1
             // Container — polygon when polyPts present, otherwise rectangle.
+            // Both rotate with the shapes layer; both share the same fill/stroke
+            // logic so the visual experience is identical.
             if (cell.polyPts && cell.polyPts.length >= 3) {
-                const ptsStr = cell.polyPts.map(p => p.x + "," + p.y).join(" ");
+                const ptsStr = cell.polyPts.map(p => `${p.x},${p.y}`).join(" ");
                 g.appendChild(svgEl("polygon", {
                     points: ptsStr,
                     fill: hexToRgba(color, dimmed ? .04 : .12),
@@ -1564,20 +1565,8 @@ export class Visual implements IVisual {
                     "stroke-width": isSel ? "2" : ".8",
                 }));
             }
-            // ── Polygon fill clipping ────────────────────────────────────────
-            // Register a clipPath so the rect-shaped fill in fillLayer gets
-            // clipped to the polygon silhouette.
-            if (cell.polyPts && cell.polyPts.length >= 3) {
-                this.ensurePolygonClipPath(cell);
-            }
 
             // Store fill + label metadata for upright rendering in fill-layer and labels-group
-            // For polygon cells, also store the clipPath id so the fill renderer
-            // can apply clip-path to keep the fill within the polygon shape.
-            if (!dimmed && cell.polyPts && cell.polyPts.length >= 3) {
-                const cellIdForClip = cell["id"];
-                g.setAttribute("data-clip", "syn-clip-" + this.sanitizeIdFragment(cellIdForClip));
-            }
             if(!dimmed){
                 // Distinguish three states for Main Value:
                 //  - undefined: field not bound OR row has null → no metric (status-only)
@@ -1888,28 +1877,12 @@ export class Visual implements IVisual {
                 // ── Gravity-aware fill (always bottom-up in viewport space) ──────
                 // Draw the fill axis-aligned at screen position so gravity is
                 // always "down" for the viewer, regardless of map rotation.
-                // CLIP_FILL_v1
                 if(pct > 0){
                     const fillW = gcw - 2;
                     const fillHFull = gch - 2;
                     const fh = fillHFull * pct;
                     const fx = center.x - fillW/2;
                     const fy = center.y + fillHFull/2 - fh;
-
-                    // For polygon cells, wrap the fill in a <g> with clip-path
-                    // pointing to the cell's pre-registered clipPath. The fill
-                    // rect itself stays axis-aligned; the clip restricts the
-                    // visible area to the polygon silhouette.
-                    const polyClipId = g2.getAttribute("data-clip");
-                    let fillContainer: SVGElement = this.fillLayer!;
-                    if (polyClipId) {
-                        const clipped = svgEl("g", {
-                            "clip-path": "url(#" + polyClipId + ")",
-                        });
-                        this.fillLayer!.appendChild(clipped);
-                        fillContainer = clipped;
-                    }
-
                     const fr = svgEl("rect",{
                         x:String(fx), y:String(fy),
                         width:String(fillW), height:String(fh),
@@ -1917,7 +1890,7 @@ export class Visual implements IVisual {
                         fill:hexToRgba(col,.35),
                     });
                     fr.setAttribute("pointer-events","none");
-                    fillContainer.appendChild(fr);
+                    this.fillLayer!.appendChild(fr);
 
                     // Accent bar at the visual bottom of the shape
                     const ab = svgEl("rect",{
@@ -1927,7 +1900,7 @@ export class Visual implements IVisual {
                         fill:hexToRgba(col,.9),
                     });
                     ab.setAttribute("pointer-events","none");
-                    fillContainer.appendChild(ab);
+                    this.fillLayer!.appendChild(ab);
                 }
 
                 // ── Shared rendering helpers ─────────────────────────────────
@@ -2147,63 +2120,6 @@ export class Visual implements IVisual {
 
         this.tooltipDiv.style.left = `${tx}px`;
         this.tooltipDiv.style.top  = `${ty}px`;
-    }
-
-    /**
-     * Sanitize a string to a safe SVG id fragment.
-     * Replaces non-[A-Za-z0-9_-] with '_' and prepends 'c' so the id never
-     * starts with a digit.
-     */
-    private sanitizeIdFragment(raw: string): string {
-        if (!raw) return "x";
-        return "c" + String(raw).replace(/[^A-Za-z0-9_-]/g, "_");
-    }
-
-    /**
-     * Register a clipPath for the given polygon cell so its fill (drawn
-     * axis-aligned in fillLayer) is clipped to the polygon silhouette.
-     *
-     * The polygon points (cell.polyPts) live in pre-rotation viewport coords.
-     * The fill is drawn in upright (no-rotation) viewport coords. To match
-     * them we project the polygon points through the same rotation pipeline
-     * as the fill — rotate around the viewport center by this.rotation.
-     */
-    private ensurePolygonClipPath(cell: Cell): void {
-        if (!cell.polyPts || cell.polyPts.length < 3) return;
-
-        let defs = this.svg.querySelector("defs");
-        if (!defs) {
-            defs = document.createElementNS("http://www.w3.org/2000/svg", "defs") as SVGDefsElement;
-            this.svg.insertBefore(defs, this.svg.firstChild);
-        }
-
-        const cellIdRaw = cell["id"];
-        const clipId = "syn-clip-" + this.sanitizeIdFragment(cellIdRaw);
-
-        let cp = this.svg.querySelector("#" + clipId) as SVGClipPathElement | null;
-        if (!cp) {
-            cp = document.createElementNS("http://www.w3.org/2000/svg", "clipPath") as SVGClipPathElement;
-            cp.setAttribute("id", clipId);
-            cp.setAttribute("clipPathUnits", "userSpaceOnUse");
-            defs.appendChild(cp);
-        }
-        while (cp.firstChild) cp.removeChild(cp.firstChild);
-
-        const rad = (this.rotation * Math.PI) / 180;
-        const cosR = Math.cos(rad), sinR = Math.sin(rad);
-        const cx = this.vpW / 2, cy = this.vpH / 2;
-        const projected = cell.polyPts.map(p => {
-            const dx = p.x - cx;
-            const dy = p.y - cy;
-            return {
-                x: dx * cosR - dy * sinR + cx,
-                y: dx * sinR + dy * cosR + cy,
-            };
-        });
-        const ptsStr = projected.map(p => p.x + "," + p.y).join(" ");
-        const poly = document.createElementNS("http://www.w3.org/2000/svg", "polygon");
-        poly.setAttribute("points", ptsStr);
-        cp.appendChild(poly);
     }
 
     /**

@@ -71,6 +71,12 @@
             "name": "imageUrl",
             "kind": "Grouping",
             "description": "Public URL of the background image (Image_URL column). Optional — when present, the visual renders the image behind the objects."
+        },
+        {
+            "displayName": "Polygon Points",
+            "name": "polygonPoints",
+            "kind": "Grouping",
+            "description": "Polygon vertex list from the editor (Polygon_Points column). Format: 'x,y;x,y;...' in relative 0-100 coordinates. Optional — leave empty for rectangle objects."
         }
     ],
     "objects": {
@@ -145,7 +151,8 @@
                         { "bind": { "to": "layoutH" } },
                         { "bind": { "to": "canvasW" } },
                         { "bind": { "to": "canvasH" } },
-                        { "bind": { "to": "imageUrl" } }
+                        { "bind": { "to": "imageUrl" } },
+                        { "bind": { "to": "polygonPoints" } }
                     ],
                     "dataReductionAlgorithm": {
                         "window": {
