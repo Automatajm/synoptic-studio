@@ -80,9 +80,58 @@ class GeneralCard extends FormattingSettingsCard {
     ];
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Routes card — controls how route lines are drawn between centroids.
+// Only relevant when Route_Order OR Route_From+Route_To are bound to data.
+// ─────────────────────────────────────────────────────────────────────────────
+class RoutesCard extends FormattingSettingsCard {
+    showRoutes = new formattingSettings.ToggleSwitch({
+        name: "showRoutes",
+        displayName: "Show routes",
+        value: true,
+    });
+
+    routeColor = new formattingSettings.ColorPicker({
+        name: "routeColor",
+        displayName: "Route color",
+        value: { value: "#00e5a0" },
+    });
+
+    routeThickness = new formattingSettings.NumUpDown({
+        name: "routeThickness",
+        displayName: "Line thickness",
+        description: "Base thickness in pixels (1-10). When Route Weight is bound, scales proportionally.",
+        value: 2,
+    });
+
+    routeOpacity = new formattingSettings.NumUpDown({
+        name: "routeOpacity",
+        displayName: "Opacity",
+        description: "Line opacity (0-100). Lower values let underlying shapes show through.",
+        value: 70,
+    });
+
+    showArrows = new formattingSettings.ToggleSwitch({
+        name: "showArrows",
+        displayName: "Show direction arrows",
+        value: true,
+    });
+
+    name:        string = "routes";
+    displayName: string = "Routes";
+    slices: Array<FormattingSettingsSlice> = [
+        this.showRoutes,
+        this.routeColor,
+        this.routeThickness,
+        this.routeOpacity,
+        this.showArrows,
+    ];
+}
+
 export class VisualFormattingSettingsModel extends FormattingSettingsModel {
     reglaColorCard = new ReglaColorCard();
     generalCard    = new GeneralCard();
+    routesCard     = new RoutesCard();
 
-    cards = [this.reglaColorCard, this.generalCard];
+    cards = [this.reglaColorCard, this.generalCard, this.routesCard];
 }

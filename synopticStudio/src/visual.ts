@@ -55,6 +55,15 @@ interface SynopticObject {
     // as a polygon instead of a rectangle (the rectangle Layout_X/Y/W/H
     // still carry the bounding box for fallback positioning).
     polygonPoints?: string;
+    // Route data — populated from the routeOrder / routeFrom / routeTo /
+    // routeWeight roles when the user binds them. The visual draws lines
+    // connecting object centroids based on these fields. Both modes are
+    // supported: linear (Route_Order on each row) or graph (each row is
+    // an edge with From/To/Weight).
+    routeOrder?:    number;
+    routeFrom?:     string;
+    routeTo?:       string;
+    routeWeight?:   number;
     // All extra fields the user dropped in the Tooltip Fields bucket,
     // already merged from categories + values and sorted in user order.
     tooltipFields:  TooltipField[];
@@ -867,11 +876,23 @@ export class Visual implements IVisual {
     private textLayer:      SVGElement | null = null;
     private labelsGroup:    SVGElement | null = null;
     private fillLayer:      SVGElement | null = null;
+    // Routes layer — sits between fill (semi-transparent overlays inside the
+    // shapes) and labels (text on top). Routes rotate with shapes (live in
+    // transformGroup conceptually) but we render them in viewport space so
+    // line widths stay zoom-aware. Lines connect object centroids based on
+    // the routeOrder / routeFrom-routeTo / routeWeight bindings.
+    private routesLayer:    SVGElement | null = null;
     private mainValueName: string = "";
     private fallback     = "#4a5560";
     private showLabel    = true;
     private showValue    = true;
     private bgOpacity    = 0.5;       // 0..1 — applied to background image
+    // Route rendering settings (read from RoutesCard in update())
+    private showRoutes      = true;
+    private routeColor      = "#00e5a0";
+    private routeThickness  = 2;       // 1..10 base px (zoom-aware at draw time)
+    private routeOpacity    = 0.7;     // 0..1
+    private showArrows      = true;
     private vpW          = 0;
     private vpH          = 0;
     // Hint banner state machine:
@@ -959,7 +980,10 @@ export class Visual implements IVisual {
         this.wrapper.appendChild(this.svg);
 
         // Create persistent layers immediately
-        // Order: bg → shapes (rotates) → fill (upright) → labels (upright) → compass
+        // Order: bg → shapes (rotates) → fill (upright) → routes (upright) → labels (upright) → compass
+        // Routes sit between fill and labels so they pass over fills but stay
+        // beneath text. Rendered upright in viewport space so line widths
+        // remain zoom-aware.
         const initBg = svgEl("rect",{"id":"bg-rect",width:"100%",height:"100%",fill:CLR.bg});
         this.svg.appendChild(initBg);
         const initTg = svgEl("g",{"id":"transform-group"});
@@ -968,6 +992,9 @@ export class Visual implements IVisual {
         const initFl = svgEl("g",{"id":"fill-layer"});
         this.svg.appendChild(initFl);
         this.fillLayer = initFl;
+        const initRl = svgEl("g",{"id":"routes-layer"});
+        this.svg.appendChild(initRl);
+        this.routesLayer = initRl;
         const initTlg = svgEl("g",{"id":"text-layer"});
         this.svg.appendChild(initTlg);
         this.textLayer = initTlg;
@@ -1218,6 +1245,19 @@ export class Visual implements IVisual {
         this.bgOpacity = (typeof rawBgOp === "number" && !isNaN(rawBgOp))
             ? Math.max(0, Math.min(1, rawBgOp / 100))
             : 0.5;
+        // Route rendering settings (RoutesCard).
+        const routesCard = this.fmtSettings.routesCard;
+        this.showRoutes     = routesCard.showRoutes.value;
+        this.routeColor     = routesCard.routeColor.value.value || "#00e5a0";
+        const rawThk        = routesCard.routeThickness.value;
+        this.routeThickness = (typeof rawThk === "number" && !isNaN(rawThk))
+            ? Math.max(1, Math.min(10, rawThk))
+            : 2;
+        const rawOp         = routesCard.routeOpacity.value;
+        this.routeOpacity   = (typeof rawOp === "number" && !isNaN(rawOp))
+            ? Math.max(0, Math.min(1, rawOp / 100))
+            : 0.7;
+        this.showArrows     = routesCard.showArrows.value;
         const dv = options.dataViews?.[0];
         if (!dv?.table?.rows?.length || !dv.table.columns?.length) {
             this.drawEmpty();
@@ -1290,6 +1330,12 @@ export class Visual implements IVisual {
 
         this.objects = [];
 
+        // Diagnostic: log how the imageUrl is being received from PBI.
+        // If the visual gets the URL truncated (e.g. PBI's DataView passes
+        // a string that's too short to be a complete data URI), this log
+        // surfaces the issue. Check the F12 console with the visual loaded.
+        let _diagLoggedImage = false;
+
         for (let i = 0; i < rows.length; i++) {
             const id = strAt("invernadero", i) || String(i);
 
@@ -1341,6 +1387,10 @@ export class Visual implements IVisual {
                 canvasH:        layoutAt("canvasH", i),
                 imageUrl:       strAt("imageUrl", i),
                 polygonPoints:  strAt("polygonPoints", i),
+                routeOrder:     numAt("routeOrder", i),
+                routeFrom:      strAt("routeFrom", i),
+                routeTo:        strAt("routeTo", i),
+                routeWeight:    numAt("routeWeight", i),
                 tooltipFields:  merged,
                 selectionId,
             });
@@ -1383,6 +1433,15 @@ export class Visual implements IVisual {
         }
         clearNode(fl);
         this.fillLayer = fl;
+
+        // Routes layer — clear contents, keep element (upright, between fill and labels)
+        let rl = this.svg.getElementById("routes-layer") as SVGElement;
+        if(!rl){
+            rl = svgEl("g",{"id":"routes-layer"});
+            this.svg.appendChild(rl);
+        }
+        clearNode(rl);
+        this.routesLayer = rl;
 
         // Text layer — clear contents, keep element
         let tlg = this.svg.getElementById("text-layer") as SVGElement;
@@ -1520,7 +1579,14 @@ export class Visual implements IVisual {
                 y:      String(bgRectY),
                 width:  String(bgRectW),
                 height: String(bgRectH),
-                preserveAspectRatio: "none",
+                // Preserve aspect ratio. If the embedded image's intrinsic
+                // dimensions don't exactly match Canvas_W:Canvas_H (e.g. the
+                // editor exported with one ratio but the embedded JPEG has
+                // a slightly different one because of compression rounding),
+                // "xMidYMid meet" centers the image inside the rectangle and
+                // letterboxes any leftover space — much better than the old
+                // "none" which would stretch the image to fill, distorting it.
+                preserveAspectRatio: "xMidYMid meet",
                 opacity: String(this.bgOpacity),
             });
             img.setAttribute("pointer-events", "none");
@@ -1712,12 +1778,175 @@ export class Visual implements IVisual {
         // Apply shape transform first
         if(this.transformGroup) this.applyTransform();
 
+        // Routes — drawn after shapes/fills so they pass over them, but before
+        // labels so labels stay on top. Reads route* fields from this.objects.
+        this.drawRoutes(cm);
+
         // Compass fixed on SVG top
         this.drawCompass(this.vpW, this.vpH);
         this.drawCompassRotated();
 
         // Show "Show items with no data" hint if suspicious rows were detected
         this.drawHint();
+    }
+
+    /**
+     * Render route lines connecting object centroids.
+     *
+     * Two modes are auto-detected from the data:
+     *
+     * 1. Linear mode (Route_Order bound): each row carries a numeric order;
+     *    objects are sorted by that order and connected sequentially:
+     *    obj[0] → obj[1] → obj[2] → ...
+     *    Arrowheads on each segment by default (visualizes traversal).
+     *
+     * 2. Graph mode (Route_From + Route_To bound): each row is an edge.
+     *    Lines connect the centroids of From and To. Optional Route_Weight
+     *    scales line thickness proportionally so heavier edges stand out.
+     *
+     * If both are bound, graph mode wins (more expressive).
+     *
+     * Lines live in routesLayer (upright in viewport space) so line widths
+     * stay zoom-aware. The centroid of each cell is projected through the
+     * current rotation so the lines align with where shapes appear visually.
+     *
+     * The bounding-box center is used as a stand-in for centroid for now —
+     * adequate for most shapes; can be upgraded later to honor a Centroid
+     * data role for irregular polygons.
+     */
+    private drawRoutes(cm: Record<string, Cell>): void {
+        if (!this.routesLayer) return;
+        if (!this.showRoutes || !this.objects.length) return;
+
+        // Detect mode
+        const hasOrder = this.objects.some(o => typeof o.routeOrder === "number" && !isNaN(o.routeOrder as number));
+        const hasGraph = this.objects.some(o => o.routeFrom && o.routeTo);
+        if (!hasOrder && !hasGraph) return;
+
+        // Project a cell's centroid (bbox center for now) through the current
+        // rotation so the line endpoints land where the shape appears on screen.
+        const rad = (this.rotation * Math.PI) / 180;
+        const cosR = Math.cos(rad), sinR = Math.sin(rad);
+        const vcx = this.vpW / 2, vcy = this.vpH / 2;
+        const projectCenter = (cell: Cell): { x: number; y: number } => {
+            const px = cell.x + cell.w / 2;
+            const py = cell.y + cell.h / 2;
+            const dx = px - vcx;
+            const dy = py - vcy;
+            return {
+                x: dx * cosR - dy * sinR + vcx,
+                y: dx * sinR + dy * cosR + vcy,
+            };
+        };
+
+        // Build edges as [fromCell, toCell, weight?]
+        type Edge = { from: Cell; to: Cell; weight?: number };
+        const edges: Edge[] = [];
+
+        if (hasGraph) {
+            // Graph mode: each row with both From and To becomes one edge
+            for (const o of this.objects) {
+                if (!o.routeFrom || !o.routeTo) continue;
+                const from = cm[o.routeFrom];
+                const to   = cm[o.routeTo];
+                if (!from || !to) continue;
+                edges.push({
+                    from, to,
+                    weight: typeof o.routeWeight === "number" ? o.routeWeight : undefined,
+                });
+            }
+        } else {
+            // Linear mode: sort objects by routeOrder, connect sequentially.
+            // Filter out rows without a valid order to avoid spurious segments.
+            const ordered = this.objects
+                .filter(o => typeof o.routeOrder === "number" && !isNaN(o.routeOrder as number))
+                .sort((a, b) => (a.routeOrder as number) - (b.routeOrder as number));
+            for (let i = 0; i < ordered.length - 1; i++) {
+                const from = cm[ordered[i].id];
+                const to   = cm[ordered[i + 1].id];
+                if (!from || !to) continue;
+                edges.push({ from, to });
+            }
+        }
+
+        if (edges.length === 0) return;
+
+        // For weight-scaled thickness, normalize against the max weight
+        // so the thickest edge ≈ 2× the base, lightest ≈ 0.5×.
+        let maxW = 0;
+        for (const e of edges) {
+            if (typeof e.weight === "number" && e.weight > maxW) maxW = e.weight;
+        }
+
+        const baseW = this.routeThickness / this.zoomLevel;
+
+        // Arrowhead marker — registered once in <defs>, reused per edge.
+        // Sized in viewport units; the marker auto-rotates to match line angle.
+        const showArrows = this.showArrows;
+        if (showArrows) {
+            this.ensureArrowMarker();
+        }
+
+        for (const e of edges) {
+            const p0 = projectCenter(e.from);
+            const p1 = projectCenter(e.to);
+
+            // Skip degenerate (same point)
+            if (Math.abs(p0.x - p1.x) < 0.01 && Math.abs(p0.y - p1.y) < 0.01) continue;
+
+            // Weight-scaled thickness: heavier edges thicker (0.5× to 2× of base)
+            let thickness = baseW;
+            if (typeof e.weight === "number" && maxW > 0) {
+                const norm = e.weight / maxW;       // 0..1
+                thickness = baseW * (0.5 + norm * 1.5);
+            }
+
+            const line = svgEl("line", {
+                x1: String(p0.x), y1: String(p0.y),
+                x2: String(p1.x), y2: String(p1.y),
+                stroke: this.routeColor,
+                "stroke-width": String(thickness),
+                "stroke-linecap": "round",
+                opacity: String(this.routeOpacity),
+            });
+            line.setAttribute("pointer-events", "none");
+            if (showArrows) {
+                line.setAttribute("marker-end", "url(#syn-arrow)");
+            }
+            this.routesLayer!.appendChild(line);
+        }
+    }
+
+    /**
+     * Register a reusable <marker> for the routes' arrowhead.
+     * Only re-runs if the color or marker doesn't exist yet — calling on
+     * every draw is fine because we update its color attribute each time.
+     */
+    private ensureArrowMarker(): void {
+        let defs = this.svg.querySelector("defs");
+        if (!defs) {
+            defs = document.createElementNS("http://www.w3.org/2000/svg", "defs") as SVGDefsElement;
+            this.svg.insertBefore(defs, this.svg.firstChild);
+        }
+        let marker = this.svg.querySelector("#syn-arrow") as SVGMarkerElement | null;
+        if (!marker) {
+            marker = document.createElementNS("http://www.w3.org/2000/svg", "marker") as SVGMarkerElement;
+            marker.setAttribute("id", "syn-arrow");
+            marker.setAttribute("viewBox", "0 0 10 10");
+            marker.setAttribute("refX", "9");
+            marker.setAttribute("refY", "5");
+            marker.setAttribute("markerWidth",  "5");
+            marker.setAttribute("markerHeight", "5");
+            marker.setAttribute("orient", "auto-start-reverse");
+            marker.setAttribute("markerUnits", "strokeWidth");
+            const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+            path.setAttribute("d", "M 0 0 L 10 5 L 0 10 z");
+            marker.appendChild(path);
+            defs.appendChild(marker);
+        }
+        // Update color each render so it follows the user's setting
+        const path = marker.querySelector("path");
+        if (path) path.setAttribute("fill", this.routeColor);
     }
 
     private drawCompass(W: number, H: number): void {
@@ -1864,6 +2093,7 @@ export class Visual implements IVisual {
         ].join(" ");
         if(this.labelsGroup) this.labelsGroup.setAttribute("transform", tUpright);
         if(this.fillLayer)   this.fillLayer.setAttribute("transform", tUpright);
+        if(this.routesLayer) this.routesLayer.setAttribute("transform", tUpright);
 
         // Update rotation button styles — button id matches its rotation degrees
         [0,90,180,270].forEach(deg=>{
@@ -2403,6 +2633,8 @@ export class Visual implements IVisual {
         if(tg2) clearNode(tg2);
         const fl2 = this.svg.getElementById("fill-layer");
         if(fl2) clearNode(fl2);
+        const rl2 = this.svg.getElementById("routes-layer");
+        if(rl2) clearNode(rl2);
         const tlg2 = this.svg.getElementById("text-layer");
         if(tlg2) clearNode(tlg2);
         const lg2 = this.svg.getElementById("labels-group");

@@ -77,6 +77,30 @@
             "name": "polygonPoints",
             "kind": "Grouping",
             "description": "Polygon vertex list from the editor (Polygon_Points column). Format: 'x,y;x,y;...' in relative 0-100 coordinates. Optional — leave empty for rectangle objects."
+        },
+        {
+            "displayName": "Route Order",
+            "name": "routeOrder",
+            "kind": "Grouping",
+            "description": "Linear route mode: numeric column (1, 2, 3...) indicating the order to visit each object. Set column to Don't Summarize. The visual draws lines connecting centroids in increasing order."
+        },
+        {
+            "displayName": "Route From",
+            "name": "routeFrom",
+            "kind": "Grouping",
+            "description": "Graph mode: source object ID for an edge. Used together with Route To to draw arbitrary connections (graphs, networks). Each row in the source table represents one edge."
+        },
+        {
+            "displayName": "Route To",
+            "name": "routeTo",
+            "kind": "Grouping",
+            "description": "Graph mode: destination object ID for an edge. Used together with Route From."
+        },
+        {
+            "displayName": "Route Weight",
+            "name": "routeWeight",
+            "kind": "GroupingOrMeasure",
+            "description": "Optional weight/distance/cost for each edge. When bound, line thickness scales proportionally so heavier edges stand out."
         }
     ],
     "objects": {
@@ -133,6 +157,49 @@
                     }
                 }
             }
+        },
+        "routes": {
+            "displayName": "Routes",
+            "properties": {
+                "showRoutes": {
+                    "displayName": "Show routes",
+                    "description": "Draw lines connecting object centroids based on Route Order or Route From/To bindings.",
+                    "type": {
+                        "bool": true
+                    }
+                },
+                "routeColor": {
+                    "displayName": "Route color",
+                    "type": {
+                        "fill": {
+                            "solid": {
+                                "color": true
+                            }
+                        }
+                    }
+                },
+                "routeThickness": {
+                    "displayName": "Line thickness",
+                    "description": "Base thickness in pixels (1-10). When Route Weight is bound, scales proportionally.",
+                    "type": {
+                        "numeric": true
+                    }
+                },
+                "routeOpacity": {
+                    "displayName": "Opacity",
+                    "description": "Line opacity (0-100). Lower values let underlying shapes show through.",
+                    "type": {
+                        "numeric": true
+                    }
+                },
+                "showArrows": {
+                    "displayName": "Show direction arrows",
+                    "description": "Place arrowheads on segments. Recommended for linear routes (Route Order). Optional for graphs.",
+                    "type": {
+                        "bool": true
+                    }
+                }
+            }
         }
     },
     "dataViewMappings": [
@@ -152,7 +219,11 @@
                         { "bind": { "to": "canvasW" } },
                         { "bind": { "to": "canvasH" } },
                         { "bind": { "to": "imageUrl" } },
-                        { "bind": { "to": "polygonPoints" } }
+                        { "bind": { "to": "polygonPoints" } },
+                        { "bind": { "to": "routeOrder" } },
+                        { "bind": { "to": "routeFrom" } },
+                        { "bind": { "to": "routeTo" } },
+                        { "bind": { "to": "routeWeight" } }
                     ],
                     "dataReductionAlgorithm": {
                         "window": {
