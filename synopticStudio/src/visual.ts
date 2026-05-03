@@ -1045,7 +1045,11 @@ export class Visual implements IVisual {
         zoomIn.addEventListener("click",(e)=>{
             e.stopPropagation();
             this.zoomLevel=Math.min(this.zoomLevel*1.25,5);
-            this.applyTransform();
+            // Re-draw (not just transform) so shape strokes / text halos that
+            // are zoom-aware recompute their visual width. Without this, the
+            // previously-rendered strokes get scaled by the SVG transform and
+            // appear thicker as the user zooms in.
+            this.draw();
         });
         ctrlWrap.appendChild(zoomIn);
 
@@ -1057,7 +1061,8 @@ export class Visual implements IVisual {
         zoomOut.addEventListener("click",(e)=>{
             e.stopPropagation();
             this.zoomLevel=Math.max(this.zoomLevel/1.25,0.2);
-            this.applyTransform();
+            // Re-draw (see zoomIn comment for rationale).
+            this.draw();
         });
         ctrlWrap.appendChild(zoomOut);
 
@@ -1096,12 +1101,23 @@ export class Visual implements IVisual {
         });
 
         // Wheel zoom — use capture to intercept before PBI
+        // During wheel events we use the cheap applyTransform for live response,
+        // then schedule a full draw() after the user stops scrolling so the
+        // zoom-aware strokes / halos recompute to their correct visual width.
+        let wheelDebounceTimer: number | null = null;
         this.wrapper.addEventListener("wheel",(e:WheelEvent)=>{
             e.preventDefault();
             e.stopPropagation();
             const factor = e.deltaY < 0 ? 1.12 : 1/1.12;
             this.zoomLevel = Math.max(0.15, Math.min(8, this.zoomLevel * factor));
             this.applyTransform();
+            if (wheelDebounceTimer !== null) {
+                clearTimeout(wheelDebounceTimer);
+            }
+            wheelDebounceTimer = window.setTimeout(() => {
+                this.draw();
+                wheelDebounceTimer = null;
+            }, 150);
         }, {passive:false, capture:true});
 
         // Pan — mousedown
@@ -1549,6 +1565,13 @@ export class Visual implements IVisual {
             const g=svgEl("g",{});
             g.setAttribute("style","cursor:pointer");
 
+            // Zoom-aware stroke widths for the shape container.
+            // The shape lives in transformGroup which scales with zoom, so a
+            // hard-coded "2" becomes ~16px at 800%. Dividing by zoomLevel keeps
+            // the visual line consistent at any zoom level.
+            const baseStrokeW = isSel ? (1.5 / this.zoomLevel) : (0.6 / this.zoomLevel);
+            const baseStroke  = isSel ? CLR.green : dimmed ? CLR.border : color + "66";
+
             // CLIP_POLYGON_FILLS_v1
             // Container — polygon when polyPts present, otherwise rectangle.
             if (cell.polyPts && cell.polyPts.length >= 3) {
@@ -1556,17 +1579,17 @@ export class Visual implements IVisual {
                 g.appendChild(svgEl("polygon", {
                     points: ptsStr,
                     fill: hexToRgba(color, dimmed ? .04 : .12),
-                    stroke: isSel ? CLR.green : dimmed ? CLR.border : color + "66",
-                    "stroke-width": isSel ? "2" : ".8",
+                    stroke: baseStroke,
+                    "stroke-width": String(baseStrokeW),
                     "stroke-linejoin": "round",
                 }));
             } else {
                 g.appendChild(svgEl("rect", {
                     x: String(cell.x), y: String(cell.y),
-                    width: String(cell.w), height: String(cell.h), rx: "3",
+                    width: String(cell.w), height: String(cell.h),
                     fill: hexToRgba(color, dimmed ? .04 : .12),
-                    stroke: isSel ? CLR.green : dimmed ? CLR.border : color + "66",
-                    "stroke-width": isSel ? "2" : ".8",
+                    stroke: baseStroke,
+                    "stroke-width": String(baseStrokeW),
                 }));
             }
             // ── Polygon fill clipping ────────────────────────────────────────
@@ -1612,9 +1635,12 @@ export class Visual implements IVisual {
             }
 
             // Hover highlight — outline that matches the shape (rect or polygon).
-            // For polygons, slightly inflate the polygon by pushing each vertex
-            // outward from the centroid. For rectangles, inflate the bounding
-            // box by 2px on all sides.
+            // Zoom-aware: stroke and inflate are divided by zoomLevel so the
+            // line stays visually consistent (~0.9px) at any zoom. Without this
+            // division, a 1.2px stroke became ~8px at 687% zoom because the
+            // highlight lives in transformGroup which scales with the zoom.
+            const hoverStroke  = 0.9 / this.zoomLevel;
+            const hoverInflate = 1.5 / this.zoomLevel;
             let hr: SVGElement;
             if (cell.polyPts && cell.polyPts.length >= 3) {
                 let cxh = 0, cyh = 0;
@@ -1626,20 +1652,25 @@ export class Visual implements IVisual {
                     const dy = p.y - cyh;
                     const len = Math.sqrt(dx*dx + dy*dy) || 1;
                     return {
-                        x: p.x + (dx / len) * 2,
-                        y: p.y + (dy / len) * 2,
+                        x: p.x + (dx / len) * hoverInflate,
+                        y: p.y + (dy / len) * hoverInflate,
                     };
                 });
                 hr = svgEl("polygon", {
                     points: inflated.map(p => `${p.x},${p.y}`).join(" "),
-                    fill: "none", stroke: CLR.green, "stroke-width": "1.2",
+                    fill: "none", stroke: CLR.green,
+                    "stroke-width": String(hoverStroke),
                     opacity: "0", "stroke-linejoin": "round",
                 });
             } else {
                 hr = svgEl("rect", {
-                    x: String(cell.x - 2), y: String(cell.y - 2),
-                    width: String(cell.w + 4), height: String(cell.h + 4), rx: "4",
-                    fill: "none", stroke: CLR.green, "stroke-width": "1.2", opacity: "0",
+                    x: String(cell.x - hoverInflate),
+                    y: String(cell.y - hoverInflate),
+                    width:  String(cell.w + hoverInflate * 2),
+                    height: String(cell.h + hoverInflate * 2),
+                    fill: "none", stroke: CLR.green,
+                    "stroke-width": String(hoverStroke),
+                    opacity: "0",
                 });
             }
             hr.setAttribute("pointer-events","none");
@@ -1895,8 +1926,24 @@ export class Visual implements IVisual {
                 // always "down" for the viewer, regardless of map rotation.
                 // CLIP_FILL_v1
                 if(pct > 0){
-                    const fillW = gcw - 2;
-                    const fillHFull = gch - 2;
+                    // For polygon cells we OVERSIZE the fill rect HORIZONTALLY
+                    // so when it gets clipped by the polygon's clipPath, no
+                    // diagonal edges end up uncovered (the rect is axis-aligned
+                    // but the polygon edges aren't, so a tight bounding-box fill
+                    // leaves visible gaps along the slopes).
+                    //
+                    // VERTICALLY the fill must use the ORIGINAL bounding box
+                    // dimensions — the percentage of fill must reflect the real
+                    // shape height. Bleeding vertically would make every shape
+                    // look 100% filled (bleed extends below the visible polygon,
+                    // so even at 50% pct the rect covers everything visible).
+                    const polyClipId = g2.getAttribute("data-clip");
+                    const isPoly = !!polyClipId;
+                    // Horizontal bleed: covers diagonal edges via clipPath
+                    // (polygons only; rects need a tight fit since edges align).
+                    const hBleed = isPoly ? Math.max(gcw, gch) * 0.5 : 0;
+                    const fillW = gcw + hBleed * 2;
+                    const fillHFull = gch;             // original height
                     const fh = fillHFull * pct;
                     const fx = center.x - fillW/2;
                     const fy = center.y + fillHFull/2 - fh;
@@ -1905,7 +1952,6 @@ export class Visual implements IVisual {
                     // pointing to the cell's pre-registered clipPath. The fill
                     // rect itself stays axis-aligned; the clip restricts the
                     // visible area to the polygon silhouette.
-                    const polyClipId = g2.getAttribute("data-clip");
                     let fillContainer: SVGElement = this.fillLayer!;
                     if (polyClipId) {
                         const clipped = svgEl("g", {
@@ -1918,24 +1964,22 @@ export class Visual implements IVisual {
                     const fr = svgEl("rect",{
                         x:String(fx), y:String(fy),
                         width:String(fillW), height:String(fh),
-                        rx:"1",
                         fill:hexToRgba(col,.35),
                     });
                     fr.setAttribute("pointer-events","none");
                     fillContainer.appendChild(fr);
-
-                    // Accent bar at the visual bottom of the shape
-                    const ab = svgEl("rect",{
-                        x:String(fx),
-                        y:String(center.y + fillHFull/2 - 3),
-                        width:String(fillW), height:"3", rx:"1",
-                        fill:hexToRgba(col,.9),
-                    });
-                    ab.setAttribute("pointer-events","none");
-                    fillContainer.appendChild(ab);
+                    // Accent bar removed — it was a 90%-opacity strip at the
+                    // bottom of each fill that read like a UI banner inside
+                    // the shape (especially on dark/gray cells). The fill
+                    // itself communicates the value; no decoration needed.
                 }
 
                 // ── Shared rendering helpers ─────────────────────────────────
+                // Zoom-aware halo width — keeps the text outline at the same
+                // visual thickness on screen regardless of zoom. Without this,
+                // at 800% zoom a 1.2px halo became ~10px on screen, looking
+                // like a thick rustic border around each label.
+                const haloScale = 1 / this.zoomLevel;
                 const mkText = (x:number, y:number, text:string, size:number,
                                 weight:string, fill:string,
                                 halo:string, haloW:number, haloOp:number,
@@ -1947,7 +1991,7 @@ export class Visual implements IVisual {
                         "font-family":"Segoe UI,sans-serif","font-weight":weight,
                         fill:fill,
                         stroke:halo,
-                        "stroke-width":String(haloW),
+                        "stroke-width":String(haloW * haloScale),
                         "stroke-linejoin":"round",
                         "stroke-opacity":String(haloOp),
                         "paint-order":"stroke fill",
@@ -1955,6 +1999,24 @@ export class Visual implements IVisual {
                     t.setAttribute("pointer-events","none");
                     t.textContent = text;
                     this.labelsGroup!.appendChild(t);
+                };
+
+                /**
+                 * Auto-fit font size: returns the largest font (≤ maxFs) that
+                 * lets `text` fit inside `availW` pixels horizontally.
+                 * Approximation: avg character width ≈ font × 0.55 (Segoe UI
+                 * is fairly compact). For bold text we use 0.60. Floor at 4px
+                 * (anything smaller is unreadable). Used by both inline and
+                 * stacked layouts to avoid truncation with "...".
+                 */
+                const fitFont = (text: string, maxFs: number, availW: number, bold = false): number => {
+                    if (!text) return maxFs;
+                    const charW = bold ? 0.60 : 0.55;
+                    const widthAt = (fs: number) => fs * charW * text.length;
+                    if (widthAt(maxFs) <= availW) return maxFs;
+                    // Solve: fs * charW * len = availW → fs = availW / (charW * len)
+                    const fitted = availW / (charW * text.length);
+                    return Math.max(4, Math.floor(fitted * 10) / 10);
                 };
 
                 // Pre-compute text colors + halos used across layouts
@@ -1993,15 +2055,12 @@ export class Visual implements IVisual {
                     const fsTxt  = Math.max(5, Math.min(10, gch * 0.38));
                     const fsVal  = Math.max(5, Math.min(11, gch * 0.46));
 
-                    // Truncation per field (chars approx based on font vs field width)
-                    const trunc = (s:string, maxChars:number) =>
-                        s.length > maxChars ? s.slice(0, Math.max(1, maxChars-1)) + "…" : s;
-
                     const drawSep = (x:number) => {
                         const s = svgEl("line",{
                             x1:String(x), y1:String(yMid - gch*0.25),
                             x2:String(x), y2:String(yMid + gch*0.25),
-                            stroke:CLR.border, "stroke-width":"0.8",
+                            stroke:CLR.border,
+                            "stroke-width":String(0.8 / this.zoomLevel),
                             "stroke-opacity":"0.55",
                         });
                         s.setAttribute("pointer-events","none");
@@ -2013,11 +2072,14 @@ export class Visual implements IVisual {
                         // Value is complementary; if user wants it, they have width
                         // for level 2+. Tooltip always has the full data.
                         if (this.showLabel && lbl) {
-                            mkText(center.x, yMid,
-                                   trunc(lbl, Math.max(2, Math.floor(effW / fsLbl * 1.5))),
-                                   fsLbl, "700", CLR.text, CLR.bg, 1.2, 0.5);
+                            // Auto-fit: never truncate the label, shrink the
+                            // font instead so the full text is always visible.
+                            const fittedFs = fitFont(lbl, fsLbl, effW, true);
+                            mkText(center.x, yMid, lbl,
+                                   fittedFs, "700", CLR.text, CLR.bg, 1.2, 0.5);
                         } else if (hasVal) {
-                            mkText(center.x, yMid, val, fsVal, "800",
+                            const fittedFs = fitFont(val, fsVal, effW, true);
+                            mkText(center.x, yMid, val, fittedFs, "800",
                                    valTxt, valHalo, 1.2, 0.35);
                         }
                     } else if (level === 2) {
@@ -2027,13 +2089,16 @@ export class Visual implements IVisual {
                         const sepX   = center.x;
 
                         if (this.showLabel && lbl) {
-                            const maxC = Math.max(2, Math.floor((gcw * 0.5) / fsLbl * 1.6));
-                            mkText(leftX, yMid, trunc(lbl, maxC), fsLbl, "700",
+                            const slotW = gcw * 0.5;
+                            const fittedFs = fitFont(lbl, fsLbl, slotW, true);
+                            mkText(leftX, yMid, lbl, fittedFs, "700",
                                    CLR.text, CLR.bg, 1.2, 0.5, "middle");
                         }
                         if (hasVal) {
                             drawSep(sepX);
-                            mkText(rightX, yMid, val, fsVal, "800",
+                            const slotW = gcw * 0.5;
+                            const fittedFs = fitFont(val, fsVal, slotW, true);
+                            mkText(rightX, yMid, val, fittedFs, "800",
                                    valTxt, valHalo, 1.2, 0.35, "middle");
                         }
                     } else if (level === 3) {
@@ -2043,19 +2108,21 @@ export class Visual implements IVisual {
                         const x3 = center.x + gcw * 0.35;  // MainVal
                         const sep1X = center.x - gcw * 0.17;
                         const sep2X = center.x + gcw * 0.17;
+                        const slotW = gcw * 0.30;
 
                         if (this.showLabel && lbl) {
-                            const maxC = Math.max(2, Math.floor((gcw * 0.30) / fsLbl * 1.6));
-                            mkText(x1, yMid, trunc(lbl, maxC), fsLbl, "700",
+                            const fittedFs = fitFont(lbl, fsLbl, slotW, true);
+                            mkText(x1, yMid, lbl, fittedFs, "700",
                                    CLR.text, CLR.bg, 1.2, 0.5, "middle");
                         }
                         drawSep(sep1X);
-                        const maxCTxt = Math.max(2, Math.floor((gcw * 0.30) / fsTxt * 1.7));
-                        mkText(x2, yMid, trunc(txt1, maxCTxt), fsTxt, "500",
+                        const fittedFsTxt = fitFont(txt1, fsTxt, slotW, false);
+                        mkText(x2, yMid, txt1, fittedFsTxt, "500",
                                CLR.dim, CLR.bg, 0.8, 0.35, "middle");
                         if (hasVal) {
                             drawSep(sep2X);
-                            mkText(x3, yMid, val, fsVal, "800",
+                            const fittedFsVal = fitFont(val, fsVal, slotW, true);
+                            mkText(x3, yMid, val, fittedFsVal, "800",
                                    valTxt, valHalo, 1.2, 0.35, "middle");
                         }
                     }
@@ -2074,11 +2141,13 @@ export class Visual implements IVisual {
                     // ═════════════════════════════════════════════════════════
                     const fsLbl = Math.max(5, Math.min(10, gcw/3.5));
                     const fsVal = Math.max(5, Math.min(9,  gcw/4.2));
-                    const maxC  = Math.max(2, Math.floor(gcw/fsLbl*1.6));
-                    const ltxt  = lbl.length>maxC ? lbl.slice(0,maxC-1)+"…" : lbl;
+                    // Auto-fit: shrink the font so the full label fits in the
+                    // cell width. Gives a small horizontal margin (90% of width).
+                    const lblFitted = fitFont(lbl, fsLbl, gcw * 0.90, true);
+                    const valFitted = fitFont(val, fsVal, gcw * 0.90, true);
 
-                    const lineLbl = fsLbl * 1.4;
-                    const lineVal = fsVal * 1.4;
+                    const lineLbl = lblFitted * 1.4;
+                    const lineVal = valFitted * 1.4;
 
                     const showLbl = this.showLabel && !!lbl;
                     const wantVal = hasVal;
@@ -2094,16 +2163,19 @@ export class Visual implements IVisual {
                     }
 
                     if (layout === "lbl_val") {
-                        mkText(center.x, center.y - gch * 0.22, ltxt, fsLbl, "700",
+                        mkText(center.x, center.y - gch * 0.22, lbl, lblFitted, "700",
                                CLR.text, CLR.bg, 1.2, 0.5, "middle");
-                        mkText(center.x, center.y + gch * 0.22, val, fsVal, "800",
+                        mkText(center.x, center.y + gch * 0.22, val, valFitted, "800",
                                valTxt, valHalo, 1.2, 0.35, "middle");
                     } else if (layout === "lbl_only") {
-                        const fsTight = Math.max(5, Math.min(fsLbl, gch * 0.55));
-                        mkText(center.x, center.y, ltxt, fsTight, "700",
+                        // Allow up to 65% of cell height for the single line of text,
+                        // then re-fit horizontally.
+                        const fsLblBig = Math.min(fsLbl * 1.5, gch * 0.65);
+                        const lblFittedBig = fitFont(lbl, fsLblBig, gcw * 0.90, true);
+                        mkText(center.x, center.y, lbl, lblFittedBig, "700",
                                CLR.text, CLR.bg, 1.2, 0.5, "middle");
                     } else if (layout === "val_only") {
-                        mkText(center.x, center.y, val, fsVal, "800",
+                        mkText(center.x, center.y, val, valFitted, "800",
                                valTxt, valHalo, 1.2, 0.35, "middle");
                     }
                 }

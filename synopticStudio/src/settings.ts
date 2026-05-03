@@ -54,7 +54,7 @@ class GeneralCard extends FormattingSettingsCard {
     rotation = new formattingSettings.NumUpDown({
         name: "rotation",
         displayName: "Rotation",
-        value: 180,
+        value: 0,
         visible: false,
     });
  
