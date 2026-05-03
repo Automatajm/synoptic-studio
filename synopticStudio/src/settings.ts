@@ -51,13 +51,14 @@ class GeneralCard extends FormattingSettingsCard {
     // Internal: persists the user's last selected rotation so it survives
     // close/reopen and report publishing. Hidden from the Format pane —
     // only the visual itself reads/writes it via host.persistProperties.
+    // Default 0 = natural orientation (image as authored in the editor).
     rotation = new formattingSettings.NumUpDown({
         name: "rotation",
         displayName: "Rotation",
         value: 0,
         visible: false,
     });
- 
+
     // User-controlled opacity for the background image (0-100).
     // Lower values make the rule colors stand out more; higher values
     // emphasize the picture. 50 is a balanced default.
@@ -67,7 +68,7 @@ class GeneralCard extends FormattingSettingsCard {
         description: "How visible the background image is behind the shapes (0-100). Lower values let the rule colors stand out more.",
         value: 50,
     });
- 
+
     name:        string = "general";
     displayName: string = "General";
     slices: Array<FormattingSettingsSlice> = [
