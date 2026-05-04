@@ -55,6 +55,15 @@ interface SynopticObject {
     // as a polygon instead of a rectangle (the rectangle Layout_X/Y/W/H
     // still carry the bounding box for fallback positioning).
     polygonPoints?: string;
+    // Optional centroid — the editor computes an area-weighted centroid for
+    // each polygon, or honors a manual override placed by the user. When
+    // present, the visual uses this point for label placement and as the
+    // start/end of routes. Critical for irregular polygons (L, U, donut)
+    // where the bbox center falls outside the silhouette. Falls back to
+    // the bbox center when not bound.
+    // Stored in the same 0-100 relative coordinate space as Layout_X/Y.
+    centroidX?:     number;
+    centroidY?:     number;
     // Route data — populated from the routeOrder / routeFrom / routeTo /
     // routeWeight roles when the user binds them. The visual draws lines
     // connecting object centroids based on these fields. Both modes are
@@ -452,6 +461,21 @@ interface Cell {
     // The points are computed once from relative 0-100 polygon coordinates and
     // the canvas frame, so they're aligned with the object's bounding box (x,y,w,h).
     polyPts?: { x: number; y: number }[];
+    // Optional centroid in viewport space (already projected from the editor's
+    // 0-100 relative coordinates). When present, label placement and route
+    // endpoints use this point instead of the bbox center. Critical for
+    // irregular polygons (L, U, donut) where the bbox center falls outside
+    // the silhouette.
+    centroidX?: number;
+    centroidY?: number;
+    // Effective space around the centroid for label rendering. For rectangles
+    // this is just w/h. For polygons, it's an inscribed-rectangle estimate
+    // based on the centroid → polygon-edge distance, so labels stay inside
+    // the actual silhouette of irregular shapes (e.g. a thin L-shaped polygon
+    // whose bbox is much larger than the visible strip). Falls back to w/h
+    // if not computed.
+    availW?: number;
+    availH?: number;
 }
 
 /**
@@ -481,6 +505,93 @@ function parsePolygonPoints(
         });
     }
     return out;
+}
+
+/**
+ * Estimate the space available for label rendering around an anchor point
+ * inside a polygon. Returns approximate (availW, availH) — the dimensions
+ * of an axis-aligned rectangle centered on (ax, ay) that fits inside the
+ * polygon's silhouette.
+ *
+ * Why this matters: for irregular polygons (L, U, thin strips, donuts) the
+ * bounding box is much larger than the visible silhouette. Sizing labels by
+ * the bbox produces oversized text that overflows the shape. By measuring
+ * how far we can extend horizontally and vertically from the anchor before
+ * leaving the polygon, we get a much tighter and visually-correct estimate.
+ *
+ * Method: cast 4 axis-aligned rays (left, right, up, down) from the anchor
+ * and find where each one first crosses a polygon edge. The horizontal
+ * available width is 2 × min(distLeft, distRight), and similar for height.
+ * If the anchor is outside the polygon (defensive) we fall back to the
+ * bbox dimensions.
+ *
+ * The math: for each ray direction, walk every polygon edge and check
+ * whether the edge crosses the ray. If it does, compute the intersection
+ * distance along the ray and keep the smallest positive one. That's the
+ * polygon's nearest edge in that direction.
+ */
+function inscribedSpaceAt(
+    pts: { x: number; y: number }[],
+    ax: number, ay: number,
+): { availW: number; availH: number } {
+    const n = pts.length;
+    if (n < 3) return { availW: 0, availH: 0 };
+
+    // Distance from anchor to nearest polygon edge in each axis-aligned direction.
+    // Initialized to +Infinity so that any real intersection wins.
+    let dL = Infinity, dR = Infinity, dU = Infinity, dD = Infinity;
+
+    for (let i = 0; i < n; i++) {
+        const p1 = pts[i];
+        const p2 = pts[(i + 1) % n];
+
+        // Horizontal ray (y = ay): check if edge crosses ay
+        if ((p1.y <= ay && p2.y > ay) || (p2.y <= ay && p1.y > ay)) {
+            // Linear interpolation: x at y=ay
+            const t = (ay - p1.y) / (p2.y - p1.y);
+            const xHit = p1.x + t * (p2.x - p1.x);
+            if (xHit < ax) {
+                const d = ax - xHit;
+                if (d < dL) dL = d;
+            } else if (xHit > ax) {
+                const d = xHit - ax;
+                if (d < dR) dR = d;
+            }
+        }
+
+        // Vertical ray (x = ax): check if edge crosses ax
+        if ((p1.x <= ax && p2.x > ax) || (p2.x <= ax && p1.x > ax)) {
+            const t = (ax - p1.x) / (p2.x - p1.x);
+            const yHit = p1.y + t * (p2.y - p1.y);
+            if (yHit < ay) {
+                const d = ay - yHit;
+                if (d < dU) dU = d;
+            } else if (yHit > ay) {
+                const d = yHit - ay;
+                if (d < dD) dD = d;
+            }
+        }
+    }
+
+    // If the anchor is outside the polygon, one or more directions never hit.
+    // Fall back to a conservative bbox-derived estimate.
+    if (!isFinite(dL) || !isFinite(dR) || !isFinite(dU) || !isFinite(dD)) {
+        let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+        for (const p of pts) {
+            if (p.x < minX) minX = p.x;
+            if (p.x > maxX) maxX = p.x;
+            if (p.y < minY) minY = p.y;
+            if (p.y > maxY) maxY = p.y;
+        }
+        return { availW: maxX - minX, availH: maxY - minY };
+    }
+
+    // Use 2× the min of left/right for horizontal, same for vertical.
+    // This guarantees a symmetric label that fits in the silhouette.
+    return {
+        availW: 2 * Math.min(dL, dR),
+        availH: 2 * Math.min(dU, dD),
+    };
 }
 
 function autoLayout(ids: string[], W: number, H: number): Cell[] {
@@ -1387,6 +1498,8 @@ export class Visual implements IVisual {
                 canvasH:        layoutAt("canvasH", i),
                 imageUrl:       strAt("imageUrl", i),
                 polygonPoints:  strAt("polygonPoints", i),
+                centroidX:      layoutAt("centroidX", i),
+                centroidY:      layoutAt("centroidY", i),
                 routeOrder:     numAt("routeOrder", i),
                 routeFrom:      strAt("routeFrom", i),
                 routeTo:        strAt("routeTo", i),
@@ -1557,6 +1670,39 @@ export class Visual implements IVisual {
                         cell.polyPts = parsed;
                     }
                 }
+                // Project the editor's centroid (if bound) to viewport space.
+                // The centroid is in the same 0-100 relative coords as Layout_X/Y,
+                // so we apply the same canvas → viewport transform. We only
+                // honor it when useEditorCanvas is true; without the editor's
+                // canvas frame the relative coords have no meaning.
+                if (useEditorCanvas
+                    && typeof o.centroidX === "number" && !isNaN(o.centroidX)
+                    && typeof o.centroidY === "number" && !isNaN(o.centroidY)
+                ) {
+                    const ccx = (o.centroidX / 100) * cW;
+                    const ccy = (o.centroidY / 100) * cH;
+                    cell.centroidX = Math.round(ccx * scale + offX);
+                    cell.centroidY = Math.round(ccy * scale + offY);
+                }
+                // Estimate label-safe space for polygons. For irregular shapes
+                // the bbox can be much larger than the visible silhouette, so
+                // sizing labels by w/h produces overflow. We measure the
+                // distance from the anchor (centroid if present, else bbox
+                // center) to the nearest polygon edge in each axis-aligned
+                // direction, and use that as the label budget. Rectangles
+                // skip this — w/h is already accurate.
+                if (cell.polyPts && cell.polyPts.length >= 3) {
+                    const ax = (typeof cell.centroidX === "number") ? cell.centroidX : cell.x + cell.w / 2;
+                    const ay = (typeof cell.centroidY === "number") ? cell.centroidY : cell.y + cell.h / 2;
+                    const { availW, availH } = inscribedSpaceAt(cell.polyPts, ax, ay);
+                    // Only use the inscribed result if it's tighter than bbox
+                    // (i.e. the polygon is meaningfully smaller than its bbox
+                    // around the anchor). For convex shapes that fully fill
+                    // their bbox, bbox is fine. We also clamp to a minimum
+                    // (4px) so degenerate polygons don't kill labels entirely.
+                    cell.availW = Math.max(4, Math.min(cell.w, availW));
+                    cell.availH = Math.max(4, Math.min(cell.h, availH));
+                }
                 return cell;
             });
         } else {
@@ -1693,10 +1839,23 @@ export class Visual implements IVisual {
                 // Inline secondary field — text1 (categorical) only.
                 // Tooltip Numbers / Tooltip Text are tooltip-only (not inline).
                 g.setAttribute("data-txt1", obj.campoTexto1 ? String(obj.campoTexto1) : "");
-                g.setAttribute("data-cx",  String(cell.x+cell.w/2));
-                g.setAttribute("data-cy",  String(cell.y+cell.h/2));
+                // Anchor point for inline labels and values. When the editor
+                // bound Centroid_X/Y, use that — places labels inside the
+                // silhouette of irregular polygons (L, U, donut). Falls back
+                // to the bbox center for rectangles or when no centroid was
+                // provided.
+                const anchorX = (typeof cell.centroidX === "number") ? cell.centroidX : cell.x + cell.w / 2;
+                const anchorY = (typeof cell.centroidY === "number") ? cell.centroidY : cell.y + cell.h / 2;
+                g.setAttribute("data-cx",  String(anchorX));
+                g.setAttribute("data-cy",  String(anchorY));
                 g.setAttribute("data-cw",  String(cell.w));
                 g.setAttribute("data-ch",  String(cell.h));
+                // Label-safe space: tighter than bbox for irregular polygons.
+                // Falls back to bbox for rectangles or shapes that fill their bbox.
+                const aW = (typeof cell.availW === "number") ? cell.availW : cell.w;
+                const aH = (typeof cell.availH === "number") ? cell.availH : cell.h;
+                g.setAttribute("data-aw",  String(aW));
+                g.setAttribute("data-ah",  String(aH));
                 g.setAttribute("data-col", color);
             }
 
@@ -1823,14 +1982,17 @@ export class Visual implements IVisual {
         const hasGraph = this.objects.some(o => o.routeFrom && o.routeTo);
         if (!hasOrder && !hasGraph) return;
 
-        // Project a cell's centroid (bbox center for now) through the current
-        // rotation so the line endpoints land where the shape appears on screen.
+        // Project a cell's anchor point through the current rotation so the
+        // line endpoints land where the shape appears on screen. If the editor
+        // bound Centroid_X/Y, use that — important for irregular polygons
+        // where the bbox center falls outside the silhouette. Falls back to
+        // the bbox center when no centroid is available.
         const rad = (this.rotation * Math.PI) / 180;
         const cosR = Math.cos(rad), sinR = Math.sin(rad);
         const vcx = this.vpW / 2, vcy = this.vpH / 2;
         const projectCenter = (cell: Cell): { x: number; y: number } => {
-            const px = cell.x + cell.w / 2;
-            const py = cell.y + cell.h / 2;
+            const px = (typeof cell.centroidX === "number") ? cell.centroidX : cell.x + cell.w / 2;
+            const py = (typeof cell.centroidY === "number") ? cell.centroidY : cell.y + cell.h / 2;
             const dx = px - vcx;
             const dy = py - vcy;
             return {
@@ -2131,6 +2293,11 @@ export class Visual implements IVisual {
                 const gcy = parseFloat(g2.getAttribute("data-cy")||"0");
                 const gcwRaw = parseFloat(g2.getAttribute("data-cw")||"22");
                 const gchRaw = parseFloat(g2.getAttribute("data-ch")||"46");
+                // Label-safe space (tighter than bbox for irregular polygons).
+                // Defaults to cw/ch when not set (rectangles, or polygons that
+                // fill their bbox).
+                const gawRaw = parseFloat(g2.getAttribute("data-aw") || String(gcwRaw));
+                const gahRaw = parseFloat(g2.getAttribute("data-ah") || String(gchRaw));
                 const pct = parseFloat(g2.getAttribute("data-pct")||"0");
                 const lbl = g2.getAttribute("data-lbl")||"";
                 const val = g2.getAttribute("data-val")||"";
@@ -2146,6 +2313,9 @@ export class Visual implements IVisual {
                 const swap = (normRot === 90 || normRot === 270);
                 const gcw = swap ? gchRaw : gcwRaw;
                 const gch = swap ? gcwRaw : gchRaw;
+                // Same swap logic for the label-safe space
+                const gaw = swap ? gahRaw : gawRaw;
+                const gah = swap ? gawRaw : gahRaw;
 
                 // Project cell center into viewport space — this is where the shape
                 // visually sits after rotation.
@@ -2254,9 +2424,10 @@ export class Visual implements IVisual {
                 const valHalo  = valTxt === "#0a0f14" ? "#f4f8fb" : "#0a0f14";
 
                 // ── Layout decision ──────────────────────────────────────────
-                // isHorizontal: cell is meaningfully wider than tall → inline layout
-                // Otherwise: stacked layout (label on top, value below)
-                const isHorizontal = gcw > gch * 1.2;
+                // isHorizontal: silhouette is meaningfully wider than tall → inline.
+                // Uses available space (gaw/gah) so an L-shaped polygon with a thin
+                // vertical strip gets the stacked layout even if its bbox is square.
+                const isHorizontal = gaw > gah * 1.2;
 
                 if (isHorizontal) {
                     // ═════════════════════════════════════════════════════════
@@ -2271,8 +2442,11 @@ export class Visual implements IVisual {
                     // ═════════════════════════════════════════════════════════
                     const yMid = center.y;
 
-                    // Effective width available for text (leave padding on both sides)
-                    const effW = gcw - 10;
+                    // Effective width available for text (leave padding on both sides).
+                    // Uses gaw (label-safe space) which equals gcw for rectangles
+                    // but is tighter for irregular polygons whose silhouette is
+                    // smaller than their bbox.
+                    const effW = gaw - 10;
 
                     // Pick collapse level
                     let level = 1;
@@ -2280,15 +2454,16 @@ export class Visual implements IVisual {
                     else if (effW >=  70)            level = 2;
                     else                             level = 1;
 
-                    // Font sizes scale with cell height (so text fits vertically)
-                    const fsLbl  = Math.max(5, Math.min(12, gch * 0.50));
-                    const fsTxt  = Math.max(5, Math.min(10, gch * 0.38));
-                    const fsVal  = Math.max(5, Math.min(11, gch * 0.46));
+                    // Font sizes scale with available height inside the silhouette
+                    // (so text fits vertically without overflowing irregular shapes).
+                    const fsLbl  = Math.max(5, Math.min(12, gah * 0.50));
+                    const fsTxt  = Math.max(5, Math.min(10, gah * 0.38));
+                    const fsVal  = Math.max(5, Math.min(11, gah * 0.46));
 
                     const drawSep = (x:number) => {
                         const s = svgEl("line",{
-                            x1:String(x), y1:String(yMid - gch*0.25),
-                            x2:String(x), y2:String(yMid + gch*0.25),
+                            x1:String(x), y1:String(yMid - gah*0.25),
+                            x2:String(x), y2:String(yMid + gah*0.25),
                             stroke:CLR.border,
                             "stroke-width":String(0.8 / this.zoomLevel),
                             "stroke-opacity":"0.55",
@@ -2313,32 +2488,33 @@ export class Visual implements IVisual {
                                    valTxt, valHalo, 1.2, 0.35);
                         }
                     } else if (level === 2) {
-                        // Label │ MainVal — classic 2-field
-                        const leftX  = center.x - gcw * 0.30;
-                        const rightX = center.x + gcw * 0.30;
+                        // Label │ MainVal — classic 2-field. Positions and slot
+                        // widths use gaw so they stay inside irregular silhouettes.
+                        const leftX  = center.x - gaw * 0.30;
+                        const rightX = center.x + gaw * 0.30;
                         const sepX   = center.x;
 
                         if (this.showLabel && lbl) {
-                            const slotW = gcw * 0.5;
+                            const slotW = gaw * 0.5;
                             const fittedFs = fitFont(lbl, fsLbl, slotW, true);
                             mkText(leftX, yMid, lbl, fittedFs, "700",
                                    CLR.text, CLR.bg, 1.2, 0.5, "middle");
                         }
                         if (hasVal) {
                             drawSep(sepX);
-                            const slotW = gcw * 0.5;
+                            const slotW = gaw * 0.5;
                             const fittedFs = fitFont(val, fsVal, slotW, true);
                             mkText(rightX, yMid, val, fittedFs, "800",
                                    valTxt, valHalo, 1.2, 0.35, "middle");
                         }
                     } else if (level === 3) {
                         // Label │ Text1 │ MainVal — 3 fields
-                        const x1 = center.x - gcw * 0.35;  // Label
-                        const x2 = center.x;                // Text1
-                        const x3 = center.x + gcw * 0.35;  // MainVal
-                        const sep1X = center.x - gcw * 0.17;
-                        const sep2X = center.x + gcw * 0.17;
-                        const slotW = gcw * 0.30;
+                        const x1 = center.x - gaw * 0.35;
+                        const x2 = center.x;
+                        const x3 = center.x + gaw * 0.35;
+                        const sep1X = center.x - gaw * 0.17;
+                        const sep2X = center.x + gaw * 0.17;
+                        const slotW = gaw * 0.30;
 
                         if (this.showLabel && lbl) {
                             const fittedFs = fitFont(lbl, fsLbl, slotW, true);
@@ -2369,12 +2545,12 @@ export class Visual implements IVisual {
                     // already communicates the rule status, the legend confirms it,
                     // and the tooltip carries every other field. Don't crowd the cell.
                     // ═════════════════════════════════════════════════════════
-                    const fsLbl = Math.max(5, Math.min(10, gcw/3.5));
-                    const fsVal = Math.max(5, Math.min(9,  gcw/4.2));
+                    const fsLbl = Math.max(5, Math.min(10, gaw/3.5));
+                    const fsVal = Math.max(5, Math.min(9,  gaw/4.2));
                     // Auto-fit: shrink the font so the full label fits in the
-                    // cell width. Gives a small horizontal margin (90% of width).
-                    const lblFitted = fitFont(lbl, fsLbl, gcw * 0.90, true);
-                    const valFitted = fitFont(val, fsVal, gcw * 0.90, true);
+                    // available width. Gives a small horizontal margin (90% of width).
+                    const lblFitted = fitFont(lbl, fsLbl, gaw * 0.90, true);
+                    const valFitted = fitFont(val, fsVal, gaw * 0.90, true);
 
                     const lineLbl = lblFitted * 1.4;
                     const lineVal = valFitted * 1.4;
@@ -2384,7 +2560,7 @@ export class Visual implements IVisual {
 
                     // Pick the richest layout that fits. Identity wins over metric.
                     let layout: "lbl_val" | "lbl_only" | "val_only" | "none" = "none";
-                    if (showLbl && wantVal && gch >= lineLbl + lineVal + 2) {
+                    if (showLbl && wantVal && gah >= lineLbl + lineVal + 2) {
                         layout = "lbl_val";
                     } else if (showLbl) {
                         layout = "lbl_only";
@@ -2393,15 +2569,15 @@ export class Visual implements IVisual {
                     }
 
                     if (layout === "lbl_val") {
-                        mkText(center.x, center.y - gch * 0.22, lbl, lblFitted, "700",
+                        mkText(center.x, center.y - gah * 0.22, lbl, lblFitted, "700",
                                CLR.text, CLR.bg, 1.2, 0.5, "middle");
-                        mkText(center.x, center.y + gch * 0.22, val, valFitted, "800",
+                        mkText(center.x, center.y + gah * 0.22, val, valFitted, "800",
                                valTxt, valHalo, 1.2, 0.35, "middle");
                     } else if (layout === "lbl_only") {
-                        // Allow up to 65% of cell height for the single line of text,
-                        // then re-fit horizontally.
-                        const fsLblBig = Math.min(fsLbl * 1.5, gch * 0.65);
-                        const lblFittedBig = fitFont(lbl, fsLblBig, gcw * 0.90, true);
+                        // Allow up to 65% of available height for the single line of
+                        // text, then re-fit horizontally.
+                        const fsLblBig = Math.min(fsLbl * 1.5, gah * 0.65);
+                        const lblFittedBig = fitFont(lbl, fsLblBig, gaw * 0.90, true);
                         mkText(center.x, center.y, lbl, lblFittedBig, "700",
                                CLR.text, CLR.bg, 1.2, 0.5, "middle");
                     } else if (layout === "val_only") {

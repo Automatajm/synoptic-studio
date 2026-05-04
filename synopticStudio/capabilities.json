@@ -79,6 +79,18 @@
             "description": "Polygon vertex list from the editor (Polygon_Points column). Format: 'x,y;x,y;...' in relative 0-100 coordinates. Optional — leave empty for rectangle objects."
         },
         {
+            "displayName": "Centroid X",
+            "name": "centroidX",
+            "kind": "Grouping",
+            "description": "Optional. Horizontal position of the label/route anchor as percentage of canvas (0-100). Honors manual overrides set in the editor. Falls back to the bounding-box center when empty. Critical for irregular polygons (L, U, donut shapes) where the bbox center falls outside the silhouette."
+        },
+        {
+            "displayName": "Centroid Y",
+            "name": "centroidY",
+            "kind": "Grouping",
+            "description": "Optional. Vertical position of the label/route anchor as percentage of canvas (0-100). See Centroid X."
+        },
+        {
             "displayName": "Route Order",
             "name": "routeOrder",
             "kind": "Grouping",
@@ -220,6 +232,8 @@
                         { "bind": { "to": "canvasH" } },
                         { "bind": { "to": "imageUrl" } },
                         { "bind": { "to": "polygonPoints" } },
+                        { "bind": { "to": "centroidX" } },
+                        { "bind": { "to": "centroidY" } },
                         { "bind": { "to": "routeOrder" } },
                         { "bind": { "to": "routeFrom" } },
                         { "bind": { "to": "routeTo" } },
