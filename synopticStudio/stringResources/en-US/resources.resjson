@@ -1,0 +1,47 @@
+{
+    "Visual_DisplayName": "Synoptic Studio",
+    "Visual_Description": "A flexible synoptic map visual: render any layout (greenhouses, factories, building floors, etc.) with rules-based coloring, polygon support, routes, and rich tooltips.",
+
+    "Object_General_DisplayName": "General",
+    "Object_General_Rotation_DisplayName": "Rotation",
+    "Object_General_Rotation_Description": "Initial rotation of the layout in degrees (0, 90, 180, 270).",
+
+    "Object_Reglas_DisplayName": "Color Rules",
+    "Object_Reglas_ReglasJson_DisplayName": "Rules (internal)",
+    "Object_Reglas_ReglasJson_Description": "Persisted rules JSON. Edit via the Rules editor in the visual.",
+
+    "Object_Etiquetas_DisplayName": "Labels",
+    "Object_Etiquetas_ShowLabel_DisplayName": "Show label",
+    "Object_Etiquetas_ShowValue_DisplayName": "Show value",
+
+    "Object_Routes_DisplayName": "Routes",
+    "Object_Routes_ShowRoutes_DisplayName": "Show routes",
+    "Object_Routes_RouteColor_DisplayName": "Route color",
+    "Object_Routes_RouteThickness_DisplayName": "Route thickness",
+    "Object_Routes_RouteOpacity_DisplayName": "Route opacity",
+    "Object_Routes_ShowArrows_DisplayName": "Show arrows",
+
+    "Role_Invernadero_DisplayName": "Object ID",
+    "Role_Etiqueta_DisplayName": "Label",
+    "Role_ValorPrincipal_DisplayName": "Main Value",
+    "Role_CampoTexto1_DisplayName": "Text Field 1",
+    "Role_TooltipFields_DisplayName": "Tooltip Fields",
+    "Role_LayoutX_DisplayName": "Layout X",
+    "Role_LayoutY_DisplayName": "Layout Y",
+    "Role_LayoutW_DisplayName": "Layout W",
+    "Role_LayoutH_DisplayName": "Layout H",
+    "Role_CanvasW_DisplayName": "Canvas Width",
+    "Role_CanvasH_DisplayName": "Canvas Height",
+    "Role_ImageUrl_DisplayName": "Background Image URL",
+    "Role_PolygonPoints_DisplayName": "Polygon Points",
+    "Role_CentroidX_DisplayName": "Centroid X",
+    "Role_CentroidY_DisplayName": "Centroid Y",
+    "Role_RouteOrder_DisplayName": "Route Order",
+    "Role_RouteFrom_DisplayName": "Route From",
+    "Role_RouteTo_DisplayName": "Route To",
+    "Role_RouteWeight_DisplayName": "Route Weight",
+
+    "LandingPage_Title": "Synoptic Studio",
+    "LandingPage_Subtitle": "Drop your data fields to start.",
+    "LandingPage_RequiredFields": "Required: Object ID. Optional but recommended: Layout X/Y/W/H, Canvas Width/Height, Polygon Points, Centroid X/Y."
+}

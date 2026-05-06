@@ -4,115 +4,134 @@
             "displayName": "Object ID",
             "name": "invernadero",
             "kind": "Grouping",
-            "description": "Unique identifier for each object on the canvas (e.g. A01, Table-12, Seat-05)"
+            "description": "Unique identifier for each object on the canvas (e.g. A01, Table-12, Seat-05)",
+            "displayNameKey": "Role_Invernadero_DisplayName"
         },
         {
             "displayName": "Label",
             "name": "etiqueta",
             "kind": "Grouping",
-            "description": "Display name shown inside each object. Defaults to Object ID if not set."
+            "description": "Display name shown inside each object. Defaults to Object ID if not set.",
+            "displayNameKey": "Role_Etiqueta_DisplayName"
         },
         {
             "displayName": "Main Value",
             "name": "valorPrincipal",
             "kind": "GroupingOrMeasure",
-            "description": "Primary numeric value. Drives the fill bar (0-100 = percentage). Optional — leave empty for status-only visuals."
+            "description": "Primary numeric value. Drives the fill bar (0-100 = percentage). Optional \u2014 leave empty for status-only visuals.",
+            "displayNameKey": "Role_ValorPrincipal_DisplayName"
         },
         {
             "displayName": "Text Field 1",
             "name": "campoTexto1",
             "kind": "Grouping",
-            "description": "Categorical field used by color rules (e.g. Status, State, Category)"
+            "description": "Categorical field used by color rules (e.g. Status, State, Category)",
+            "displayNameKey": "Role_CampoTexto1_DisplayName"
         },
         {
             "displayName": "Tooltip Fields",
             "name": "tooltipFields",
             "kind": "GroupingOrMeasure",
-            "description": "Additional fields shown in the tooltip — drag any combination of measures, dates, or text fields. Order is preserved."
+            "description": "Additional fields shown in the tooltip \u2014 drag any combination of measures, dates, or text fields. Order is preserved.",
+            "displayNameKey": "Role_TooltipFields_DisplayName"
         },
         {
             "displayName": "Layout X",
             "name": "layoutX",
             "kind": "Grouping",
-            "description": "Horizontal position on canvas (0 to Canvas_W). Set column to Don't Summarize."
+            "description": "Horizontal position on canvas (0 to Canvas_W). Set column to Don't Summarize.",
+            "displayNameKey": "Role_LayoutX_DisplayName"
         },
         {
             "displayName": "Layout Y",
             "name": "layoutY",
             "kind": "Grouping",
-            "description": "Vertical position on canvas (0 to Canvas_H). Set column to Don't Summarize."
+            "description": "Vertical position on canvas (0 to Canvas_H). Set column to Don't Summarize.",
+            "displayNameKey": "Role_LayoutY_DisplayName"
         },
         {
             "displayName": "Layout W",
             "name": "layoutW",
             "kind": "Grouping",
-            "description": "Object width in pixels. Set column to Don't Summarize."
+            "description": "Object width in pixels. Set column to Don't Summarize.",
+            "displayNameKey": "Role_LayoutW_DisplayName"
         },
         {
             "displayName": "Layout H",
             "name": "layoutH",
             "kind": "Grouping",
-            "description": "Object height in pixels. Set column to Don't Summarize."
+            "description": "Object height in pixels. Set column to Don't Summarize.",
+            "displayNameKey": "Role_LayoutH_DisplayName"
         },
         {
             "displayName": "Canvas Width",
             "name": "canvasW",
             "kind": "Grouping",
-            "description": "Original canvas width from the editor (Canvas_W). Set column to Don't Summarize. Used for accurate aspect ratio."
+            "description": "Original canvas width from the editor (Canvas_W). Set column to Don't Summarize. Used for accurate aspect ratio.",
+            "displayNameKey": "Role_CanvasW_DisplayName"
         },
         {
             "displayName": "Canvas Height",
             "name": "canvasH",
             "kind": "Grouping",
-            "description": "Original canvas height from the editor (Canvas_H). Set column to Don't Summarize. Used for accurate aspect ratio."
+            "description": "Original canvas height from the editor (Canvas_H). Set column to Don't Summarize. Used for accurate aspect ratio.",
+            "displayNameKey": "Role_CanvasH_DisplayName"
         },
         {
             "displayName": "Background Image URL",
             "name": "imageUrl",
             "kind": "Grouping",
-            "description": "Public URL of the background image (Image_URL column). Optional — when present, the visual renders the image behind the objects."
+            "description": "Public URL of the background image (Image_URL column). Optional \u2014 when present, the visual renders the image behind the objects.",
+            "displayNameKey": "Role_ImageUrl_DisplayName"
         },
         {
             "displayName": "Polygon Points",
             "name": "polygonPoints",
             "kind": "Grouping",
-            "description": "Polygon vertex list from the editor (Polygon_Points column). Format: 'x,y;x,y;...' in relative 0-100 coordinates. Optional — leave empty for rectangle objects."
+            "description": "Polygon vertex list from the editor (Polygon_Points column). Format: 'x,y;x,y;...' in relative 0-100 coordinates. Optional \u2014 leave empty for rectangle objects.",
+            "displayNameKey": "Role_PolygonPoints_DisplayName"
         },
         {
             "displayName": "Centroid X",
             "name": "centroidX",
             "kind": "Grouping",
-            "description": "Optional. Horizontal position of the label/route anchor as percentage of canvas (0-100). Honors manual overrides set in the editor. Falls back to the bounding-box center when empty. Critical for irregular polygons (L, U, donut shapes) where the bbox center falls outside the silhouette."
+            "description": "Optional. Horizontal position of the label/route anchor as percentage of canvas (0-100). Honors manual overrides set in the editor. Falls back to the bounding-box center when empty. Critical for irregular polygons (L, U, donut shapes) where the bbox center falls outside the silhouette.",
+            "displayNameKey": "Role_CentroidX_DisplayName"
         },
         {
             "displayName": "Centroid Y",
             "name": "centroidY",
             "kind": "Grouping",
-            "description": "Optional. Vertical position of the label/route anchor as percentage of canvas (0-100). See Centroid X."
+            "description": "Optional. Vertical position of the label/route anchor as percentage of canvas (0-100). See Centroid X.",
+            "displayNameKey": "Role_CentroidY_DisplayName"
         },
         {
             "displayName": "Route Order",
             "name": "routeOrder",
             "kind": "Grouping",
-            "description": "Linear route mode: numeric column (1, 2, 3...) indicating the order to visit each object. Set column to Don't Summarize. The visual draws lines connecting centroids in increasing order."
+            "description": "Linear route mode: numeric column (1, 2, 3...) indicating the order to visit each object. Set column to Don't Summarize. The visual draws lines connecting centroids in increasing order.",
+            "displayNameKey": "Role_RouteOrder_DisplayName"
         },
         {
             "displayName": "Route From",
             "name": "routeFrom",
             "kind": "Grouping",
-            "description": "Graph mode: source object ID for an edge. Used together with Route To to draw arbitrary connections (graphs, networks). Each row in the source table represents one edge."
+            "description": "Graph mode: source object ID for an edge. Used together with Route To to draw arbitrary connections (graphs, networks). Each row in the source table represents one edge.",
+            "displayNameKey": "Role_RouteFrom_DisplayName"
         },
         {
             "displayName": "Route To",
             "name": "routeTo",
             "kind": "Grouping",
-            "description": "Graph mode: destination object ID for an edge. Used together with Route From."
+            "description": "Graph mode: destination object ID for an edge. Used together with Route From.",
+            "displayNameKey": "Role_RouteTo_DisplayName"
         },
         {
             "displayName": "Route Weight",
             "name": "routeWeight",
             "kind": "GroupingOrMeasure",
-            "description": "Optional weight/distance/cost for each edge. When bound, line thickness scales proportionally so heavier edges stand out."
+            "description": "Optional weight/distance/cost for each edge. When bound, line thickness scales proportionally so heavier edges stand out.",
+            "displayNameKey": "Role_RouteWeight_DisplayName"
         }
     ],
     "objects": {
@@ -124,9 +143,11 @@
                     "description": "Internal: color-rule definitions. Edit via the built-in Rules editor (gear icon).",
                     "type": {
                         "text": true
-                    }
+                    },
+                    "displayNameKey": "Object_Reglas_ReglasJson_DisplayName"
                 }
-            }
+            },
+            "displayNameKey": "Object_Reglas_DisplayName"
         },
         "general": {
             "displayName": "General",
@@ -135,13 +156,15 @@
                     "displayName": "Show label",
                     "type": {
                         "bool": true
-                    }
+                    },
+                    "displayNameKey": "Object_Etiquetas_ShowLabel_DisplayName"
                 },
                 "mostrarValor": {
                     "displayName": "Show main value",
                     "type": {
                         "bool": true
-                    }
+                    },
+                    "displayNameKey": "Object_Etiquetas_ShowValue_DisplayName"
                 },
                 "colorFallback": {
                     "displayName": "Default color",
@@ -159,7 +182,8 @@
                     "description": "Internal: last selected rotation (persisted across reloads).",
                     "type": {
                         "numeric": true
-                    }
+                    },
+                    "displayNameKey": "Object_General_Rotation_DisplayName"
                 },
                 "backgroundOpacity": {
                     "displayName": "Background image opacity",
@@ -167,8 +191,16 @@
                     "type": {
                         "numeric": true
                     }
+                },
+                "allowInteractions": {
+                    "displayName": "Allow Interactions",
+                    "description": "Whether clicks on shapes select them and cross-filter other visuals.",
+                    "type": {
+                        "bool": true
+                    }
                 }
-            }
+            },
+            "displayNameKey": "Object_General_DisplayName"
         },
         "routes": {
             "displayName": "Routes",
@@ -178,7 +210,8 @@
                     "description": "Draw lines connecting object centroids based on Route Order or Route From/To bindings.",
                     "type": {
                         "bool": true
-                    }
+                    },
+                    "displayNameKey": "Object_Routes_ShowRoutes_DisplayName"
                 },
                 "routeColor": {
                     "displayName": "Route color",
@@ -188,30 +221,35 @@
                                 "color": true
                             }
                         }
-                    }
+                    },
+                    "displayNameKey": "Object_Routes_RouteColor_DisplayName"
                 },
                 "routeThickness": {
                     "displayName": "Line thickness",
                     "description": "Base thickness in pixels (1-10). When Route Weight is bound, scales proportionally.",
                     "type": {
                         "numeric": true
-                    }
+                    },
+                    "displayNameKey": "Object_Routes_RouteThickness_DisplayName"
                 },
                 "routeOpacity": {
                     "displayName": "Opacity",
                     "description": "Line opacity (0-100). Lower values let underlying shapes show through.",
                     "type": {
                         "numeric": true
-                    }
+                    },
+                    "displayNameKey": "Object_Routes_RouteOpacity_DisplayName"
                 },
                 "showArrows": {
                     "displayName": "Show direction arrows",
                     "description": "Place arrowheads on segments. Recommended for linear routes (Route Order). Optional for graphs.",
                     "type": {
                         "bool": true
-                    }
+                    },
+                    "displayNameKey": "Object_Routes_ShowArrows_DisplayName"
                 }
-            }
+            },
+            "displayNameKey": "Object_Routes_DisplayName"
         }
     },
     "dataViewMappings": [
@@ -219,25 +257,101 @@
             "table": {
                 "rows": {
                     "select": [
-                        { "bind": { "to": "invernadero" } },
-                        { "bind": { "to": "etiqueta" } },
-                        { "bind": { "to": "campoTexto1" } },
-                        { "bind": { "to": "valorPrincipal" } },
-                        { "for":  { "in": "tooltipFields" } },
-                        { "bind": { "to": "layoutX" } },
-                        { "bind": { "to": "layoutY" } },
-                        { "bind": { "to": "layoutW" } },
-                        { "bind": { "to": "layoutH" } },
-                        { "bind": { "to": "canvasW" } },
-                        { "bind": { "to": "canvasH" } },
-                        { "bind": { "to": "imageUrl" } },
-                        { "bind": { "to": "polygonPoints" } },
-                        { "bind": { "to": "centroidX" } },
-                        { "bind": { "to": "centroidY" } },
-                        { "bind": { "to": "routeOrder" } },
-                        { "bind": { "to": "routeFrom" } },
-                        { "bind": { "to": "routeTo" } },
-                        { "bind": { "to": "routeWeight" } }
+                        {
+                            "bind": {
+                                "to": "invernadero"
+                            }
+                        },
+                        {
+                            "bind": {
+                                "to": "etiqueta"
+                            }
+                        },
+                        {
+                            "bind": {
+                                "to": "campoTexto1"
+                            }
+                        },
+                        {
+                            "bind": {
+                                "to": "valorPrincipal"
+                            }
+                        },
+                        {
+                            "for": {
+                                "in": "tooltipFields"
+                            }
+                        },
+                        {
+                            "bind": {
+                                "to": "layoutX"
+                            }
+                        },
+                        {
+                            "bind": {
+                                "to": "layoutY"
+                            }
+                        },
+                        {
+                            "bind": {
+                                "to": "layoutW"
+                            }
+                        },
+                        {
+                            "bind": {
+                                "to": "layoutH"
+                            }
+                        },
+                        {
+                            "bind": {
+                                "to": "canvasW"
+                            }
+                        },
+                        {
+                            "bind": {
+                                "to": "canvasH"
+                            }
+                        },
+                        {
+                            "bind": {
+                                "to": "imageUrl"
+                            }
+                        },
+                        {
+                            "bind": {
+                                "to": "polygonPoints"
+                            }
+                        },
+                        {
+                            "bind": {
+                                "to": "centroidX"
+                            }
+                        },
+                        {
+                            "bind": {
+                                "to": "centroidY"
+                            }
+                        },
+                        {
+                            "bind": {
+                                "to": "routeOrder"
+                            }
+                        },
+                        {
+                            "bind": {
+                                "to": "routeFrom"
+                            }
+                        },
+                        {
+                            "bind": {
+                                "to": "routeTo"
+                            }
+                        },
+                        {
+                            "bind": {
+                                "to": "routeWeight"
+                            }
+                        }
                     ],
                     "dataReductionAlgorithm": {
                         "window": {
@@ -248,5 +362,18 @@
             }
         }
     ],
-    "privileges": []
+    "privileges": [],
+    "supportsHighlight": true,
+    "supportsMultiVisualSelection": true,
+    "supportsLandingPage": true,
+    "supportsKeyboardFocus": false,
+    "tooltips": {
+        "supportedTypes": {
+            "default": true,
+            "canvas": true
+        },
+        "roles": [
+            "tooltipFields"
+        ]
+    }
 }

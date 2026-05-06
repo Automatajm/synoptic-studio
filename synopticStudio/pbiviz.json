@@ -5,7 +5,7 @@
         "guid": "synopticStudioAAC862159B8F45BBBBD536EE50031F3E",
         "visualClassName": "Visual",
         "version": "1.0.0.0",
-        "description": "Motor de sinópticos genérico con reglas de color configurables",
+        "description": "A flexible synoptic map visual: render any layout (greenhouses, factories, building floors, etc.) with rules-based coloring, polygon support, routes, and rich tooltips.",
         "supportUrl": "https://github.com/Automatajm",
         "gitHubUrl": "https://github.com/Automatajm"
     },
@@ -21,5 +21,8 @@
     "style": "style/visual.less",
     "capabilities": "capabilities.json",
     "dependencies": null,
-    "stringResources": []
+    "stringResources": [
+        "stringResources/en-US/resources.resjson",
+        "stringResources/es-ES/resources.resjson"
+    ]
 }

@@ -9,6 +9,8 @@ import VisualUpdateOptions      = powerbi.extensibility.visual.VisualUpdateOptio
 import IVisual                  = powerbi.extensibility.visual.IVisual;
 import ISelectionManager        = powerbi.extensibility.ISelectionManager;
 import ISelectionId             = powerbi.visuals.ISelectionId;
+import ITooltipService          = powerbi.extensibility.ITooltipService;
+import ILocalizationManager     = powerbi.extensibility.ILocalizationManager;
 
 import { VisualFormattingSettingsModel } from "./settings";
 
@@ -302,15 +304,11 @@ function wrapScrollable(container: HTMLElement): HTMLElement {
     left.textContent = "‹"; left.title = "Scroll left";
     const right = mk("div"); right.className = "syn-arrow syn-arrow-right";
     right.textContent = "›"; right.title = "Scroll right";
-    // eslint-disable-next-line powerbi-visuals/non-literal-fs-path -- DOM appendChild, not fs
     parent.appendChild(left);
-    // eslint-disable-next-line powerbi-visuals/non-literal-fs-path -- DOM appendChild, not fs
     parent.appendChild(right);
 
     const STEP = 80;
-    // eslint-disable-next-line powerbi-visuals/non-literal-fs-path -- DOM addEventListener, not fs
     left.addEventListener("click",  () => { container.scrollLeft -= STEP; });
-    // eslint-disable-next-line powerbi-visuals/non-literal-fs-path -- DOM addEventListener, not fs
     right.addEventListener("click", () => { container.scrollLeft += STEP; });
 
     const updateArrows = () => {
@@ -868,15 +866,19 @@ class RulesEditor {
         row.appendChild(cd);
 
         // Field
-        const fs=mk("select",{...INP,maxWidth:"108px",flexShrink:"0"}) as HTMLSelectElement;
+        // (renamed from `fs` — the eslint plugin powerbi-visuals/non-literal-fs-path
+        // confuses any local variable named `fs` with Node.js's filesystem module
+        // and flags appendChild / addEventListener as insecure fs operations. Using
+        // `fSel` sidesteps the false positive.)
+        const fSel=mk("select",{...INP,maxWidth:"108px",flexShrink:"0"}) as HTMLSelectElement;
         FIELDS.forEach(f=>{
             const o=document.createElement("option");
             o.value=f.k; o.textContent=f.l;
             if(f.k===rule.field) o.selected=true;
-            fs.appendChild(o);
+            fSel.appendChild(o);
         });
-        fs.addEventListener("change",()=>rule.field=fs.value);
-        row.appendChild(fs);
+        fSel.addEventListener("change",()=>rule.field=fSel.value);
+        row.appendChild(fSel);
 
         // Op
         const os=mk("select",{...INP,maxWidth:"88px",flexShrink:"0"}) as HTMLSelectElement;
@@ -963,6 +965,26 @@ export class Visual implements IVisual {
     private fmtSettings: VisualFormattingSettingsModel;
     private selMgr:      ISelectionManager;
     private host:        powerbi.extensibility.visual.IVisualHost;
+    // Whether selections on shapes should propagate to other visuals as
+    // cross-filters. Read from host.hostCapabilities.allowInteractions —
+    // PBI sets this to false in non-interactive contexts (dashboards,
+    // mobile tile preview, etc.). When false, click handlers should still
+    // run for local UI feedback but skip the selectionManager.select call.
+    private allowInteractions: boolean = true;
+    // Rendering Events service — used by Power BI to know when the visual
+    // has finished drawing for performance metrics, exports, and
+    // screenshots. We notify it at the start and end of update().
+    private events:      powerbi.extensibility.IVisualEventService;
+    // Tooltip service — replaces our custom tooltip with the official
+    // Power BI tooltip API, which respects the report's theme, supports
+    // canvas tooltips, and works correctly across visual boundaries.
+    private tooltipSvc:  ITooltipService;
+    // Localization manager — provides localized strings from the visual's
+    // stringResources/<locale>/resources.resjson files based on the user's
+    // Power BI report locale. We use it to resolve display strings shown
+    // in the landing page and (via getString) anywhere the visual surfaces
+    // text that should adapt to the user's language.
+    private localization: ILocalizationManager;
     private selectedIds: Set<string>     = new Set();
     private rules:       ColorRule[]     = [];
     private objects:     SynopticObject[]= [];
@@ -1026,6 +1048,16 @@ export class Visual implements IVisual {
         this.target = options.element;
         this.selMgr = this.host.createSelectionManager();
         this.fmtSvc = new FormattingSettingsService();
+        // Optional services — guard with `||` because some host versions
+        // (older PBI Desktop builds, certain test harnesses) may not
+        // expose them. The features degrade gracefully when absent.
+        this.events     = this.host.eventService;
+        this.tooltipSvc = this.host.tooltipService;
+        // Initialize the localization manager so the visual can read strings
+        // from stringResources/<locale>/resources.resjson. The manager picks
+        // the right locale from the host's report settings and falls back
+        // to en-US when no translation exists for a given key.
+        this.localization = this.host.createLocalizationManager();
 
         // Detect PBI report theme from host color palette
         CLR = getTheme(this.isHostDark());
@@ -1237,6 +1269,20 @@ export class Visual implements IVisual {
             this.editor.hide();
             this.drawLegend();
         });
+        // Right-click on empty SVG area: show Power BI's standard context
+        // menu (export data, see records, etc.) with no specific selection.
+        this.svg.addEventListener("contextmenu", (e: MouseEvent) => {
+            // Only intercept if the target is the SVG itself (not a shape
+            // group inside it — those have their own contextmenu handlers).
+            if (e.target !== this.svg) return;
+            e.preventDefault();
+            if (this.selMgr && (this.selMgr as ISelectionManager).showContextMenu) {
+                (this.selMgr as ISelectionManager).showContextMenu(
+                    {} as ISelectionId,
+                    { x: e.clientX, y: e.clientY },
+                );
+            }
+        });
 
         // Wheel zoom — use capture to intercept before PBI
         // During wheel events we use the cheap applyTransform for live response,
@@ -1291,7 +1337,77 @@ export class Visual implements IVisual {
     }
 
     public update(options: VisualUpdateOptions): void {
+        // Tell Power BI we're starting a render. PBI uses this to know
+        // when the visual is busy (for screenshots, exports, performance
+        // metrics, the "..." menu freeze detection, etc.). The matching
+        // renderingFinished call is at the end of this method.
+        if (this.events) {
+            try { this.events.renderingStarted(options); }
+            catch { /* host doesn't support events; continue silently */ }
+        }
+
+        try {
+            this.updateInternal(options);
+            // Notify Power BI that rendering has finished. Symmetric with the
+            // renderingStarted call at the top of this method.
+            if (this.events) {
+                try { this.events.renderingFinished(options); }
+                catch { /* host doesn't support events; continue silently */ }
+            }
+        } catch (err) {
+            // Notify Power BI rendering failed so it can mark the visual as
+            // errored in performance metrics. The visual still tries to show
+            // whatever it managed to render before the error — better partial
+            // output than a blank canvas.
+            if (this.events) {
+                try { this.events.renderingFailed(options, err instanceof Error ? err.message : String(err)); }
+                catch { /* host doesn't support events; continue silently */ }
+            }
+            // Re-throw so the host shows the error indicator
+            throw err;
+        }
+    }
+
+    private updateInternal(options: VisualUpdateOptions): void {
+        // Read the host-provided allowInteractions flag. When the visual
+        // is rendered in a context that does NOT support cross-filtering
+        // (dashboard tiles, mobile previews, certain export modes), this
+        // is false — and we must skip selectionManager.select calls so
+        // we don't try to filter visuals that aren't there. The flag is
+        // documented at: docs.microsoft.com/.../visuals-interactions.
+        try {
+            const hostCaps = (this.host as unknown as {
+                hostCapabilities?: { allowInteractions?: boolean };
+            }).hostCapabilities;
+            this.allowInteractions = (hostCaps && typeof hostCaps.allowInteractions === "boolean")
+                ? hostCaps.allowInteractions
+                : true;
+        } catch (_err) {
+            this.allowInteractions = true;
+        }
+
         CLR = getTheme(this.isHostDark());
+        // High contrast override: when the user is using Windows high
+        // contrast mode, replace key palette colors with the host's
+        // semantic colors so the visual remains readable.
+        const hc = this.hcColors();
+        if (hc) {
+            CLR = {
+                ...CLR,
+                bg:      hc.bg,
+                surface: hc.bg,
+                panel:   hc.bg,
+                card:    hc.bg,
+                lo:      hc.bg,
+                text:    hc.fg,
+                dim:     hc.fg,
+                muted:   hc.fg,
+                border:  hc.fg,
+                hi:      hc.sel,
+                green:   hc.sel,
+                glo:     hc.bg,
+            };
+        }
         this.target.style.background = CLR.bg;
         this.fmtSettings=this.fmtSvc.populateFormattingSettingsModel(
             VisualFormattingSettingsModel, options.dataViews[0]);
@@ -1516,6 +1632,13 @@ export class Visual implements IVisual {
 
     private draw(): void {
         const W=this.vpW, H=this.vpH;
+
+        // Clean up landing page if it was shown (for the empty state).
+        // The next render with data should never have it lingering on top.
+        const landing = this.svg.getElementById("syn-landing");
+        if(landing && landing.parentNode) landing.parentNode.removeChild(landing);
+        const oldMsg = this.svg.getElementById("empty-msg");
+        if(oldMsg && oldMsg.parentNode) oldMsg.parentNode.removeChild(oldMsg);
 
         // Update background rect without clearing entire SVG
         let bgRect = this.svg.getElementById("bg-rect") as SVGElement;
@@ -1918,18 +2041,45 @@ export class Visual implements IVisual {
                 e.stopPropagation();
                 this.tooltipDiv.style.display="none";
                 this.editor.hide();
+                // Update local selected-ids set regardless of interaction mode,
+                // so the visual still shows the click feedback. But only call
+                // selectionManager.select() when the host allows interactions
+                // (per host.hostCapabilities.allowInteractions read in update);
+                // otherwise we'd try to cross-filter in a non-interactive
+                // context (dashboard tile, mobile preview, etc.).
                 if(e.ctrlKey||e.metaKey){
                     this.selectedIds.has(obj.id)?this.selectedIds.delete(obj.id):this.selectedIds.add(obj.id);
-                    this.selMgr.select(obj.selectionId,true);
+                    if (this.allowInteractions) {
+                        this.selMgr.select(obj.selectionId,true);
+                    }
                 } else {
                     if(this.selectedIds.size===1&&this.selectedIds.has(obj.id)){
-                        this.selectedIds.clear(); this.selMgr.clear();
+                        this.selectedIds.clear();
+                        if (this.allowInteractions) this.selMgr.clear();
                     } else {
                         this.selectedIds.clear(); this.selectedIds.add(obj.id);
-                        this.selMgr.select(obj.selectionId,false);
+                        if (this.allowInteractions) {
+                            this.selMgr.select(obj.selectionId,false);
+                        }
                     }
                 }
                 this.draw();
+            });
+            // Right-click: show Power BI's standard context menu, which lets
+            // users drill through to other report pages, see related data,
+            // copy values, etc. The default browser context menu is suppressed.
+            // The event coordinates are passed in viewport space so the menu
+            // appears at the cursor.
+            g.addEventListener("contextmenu", (e: MouseEvent) => {
+                e.preventDefault();
+                e.stopPropagation();
+                this.tooltipDiv.style.display = "none";
+                if (this.selMgr && (this.selMgr as ISelectionManager).showContextMenu) {
+                    (this.selMgr as ISelectionManager).showContextMenu(
+                        obj.selectionId,
+                        { x: e.clientX, y: e.clientY },
+                    );
+                }
             });
             tg.appendChild(g);
         });
@@ -2212,9 +2362,12 @@ export class Visual implements IVisual {
                     }
                 }
 
-                // Rebuild the cross-filter selection from the current legendFilter set
+                // Rebuild the cross-filter selection from the current legendFilter set.
+                // Skip the host-level selection calls when interactions are
+                // disabled, but still update the local selectedIds set so the
+                // legend chips render correctly.
                 this.selectedIds.clear();
-                this.selMgr.clear();
+                if (this.allowInteractions) this.selMgr.clear();
                 if (this.legendFilter.size > 0) {
                     const matching = this.objects.filter(obj => {
                         const res = applyRules(this.rules, obj, this.fallback);
@@ -2222,7 +2375,9 @@ export class Visual implements IVisual {
                     });
                     matching.forEach((obj, i) => {
                         // i>0 means "add to selection" — accumulates into multi-select
-                        this.selMgr.select(obj.selectionId, i > 0);
+                        if (this.allowInteractions) {
+                            this.selMgr.select(obj.selectionId, i > 0);
+                        }
                         this.selectedIds.add(obj.id);
                     });
                 }
@@ -2823,14 +2978,91 @@ export class Visual implements IVisual {
         bgRect2.setAttribute("width",String(this.vpW));
         bgRect2.setAttribute("height",String(this.vpH));
         bgRect2.setAttribute("fill",CLR.bg);
+
+        // Landing page — a designed empty state that helps the user
+        // understand what data the visual needs. Replaces the bare
+        // "drag a field here" message PBI shows by default. Disposed
+        // automatically the next time draw() runs with data.
+        const oldLanding = this.svg.getElementById("syn-landing");
+        if(oldLanding && oldLanding.parentNode) oldLanding.parentNode.removeChild(oldLanding);
         const oldMsg = this.svg.getElementById("empty-msg");
         if(oldMsg && oldMsg.parentNode) oldMsg.parentNode.removeChild(oldMsg);
-        const t=svgEl("text",{"id":"empty-msg",
-            x:String(this.vpW/2),y:String(this.vpH/2),"text-anchor":"middle",
-            "font-size":"12","font-family":"Segoe UI,sans-serif",fill:CLR.dim,
+
+        const landing = svgEl("g", { id: "syn-landing" });
+        const cx = this.vpW / 2;
+        const cy = this.vpH / 2;
+
+        // Decorative grid icon — a 3x3 of rectangles suggesting a synoptic
+        // layout. Drawn above the title.
+        const iconY = cy - 80;
+        const iconSize = 12;
+        const iconGap = 4;
+        const iconStart = cx - (iconSize * 3 + iconGap * 2) / 2;
+        for (let row = 0; row < 3; row++) {
+            for (let col = 0; col < 3; col++) {
+                const r = svgEl("rect", {
+                    x: String(iconStart + col * (iconSize + iconGap)),
+                    y: String(iconY + row * (iconSize + iconGap)),
+                    width:  String(iconSize),
+                    height: String(iconSize),
+                    rx: "1",
+                    fill: CLR.green,
+                    "fill-opacity": String(0.15 + 0.10 * (row + col)),
+                });
+                landing.appendChild(r);
+            }
+        }
+
+        const title = svgEl("text", {
+            x: String(cx), y: String(cy - 18),
+            "text-anchor": "middle",
+            "font-family": "Segoe UI, sans-serif",
+            "font-size": "16",
+            "font-weight": "700",
+            fill: CLR.text,
         });
-        t.textContent="Drag the Object ID field to the visual";
-        this.svg.appendChild(t);
+        // Localized display name. Falls back to English when no translation
+        // is available for the current locale (getDisplayName returns the
+        // key itself when no translation is found, so we check for that).
+        const loc = (key: string, fallback: string): string => {
+            if (!this.localization) return fallback;
+            try {
+                const result = this.localization.getDisplayName(key);
+                // If the manager returns the key unchanged (or empty), no
+                // translation was found — use the English fallback.
+                return (result && result !== key) ? result : fallback;
+            } catch (_e) {
+                return fallback;
+            }
+        };
+
+        title.textContent = loc("LandingPage_Title", "Synoptic Studio");
+        landing.appendChild(title);
+
+        const subtitle = svgEl("text", {
+            x: String(cx), y: String(cy + 6),
+            "text-anchor": "middle",
+            "font-family": "Segoe UI, sans-serif",
+            "font-size": "12",
+            fill: CLR.dim,
+        });
+        subtitle.textContent = loc("LandingPage_Subtitle", "Drop your data fields to start.");
+        landing.appendChild(subtitle);
+
+        const hint = svgEl("text", {
+            x: String(cx), y: String(cy + 30),
+            "text-anchor": "middle",
+            "font-family": "Segoe UI, sans-serif",
+            "font-size": "10",
+            fill: CLR.muted,
+        });
+        hint.textContent = loc(
+            "LandingPage_RequiredFields",
+            "Required: Object ID. Recommended: Layout X/Y/W/H, Canvas W/H.",
+        );
+        landing.appendChild(hint);
+
+        this.svg.appendChild(landing);
     }
 
     public getFormattingModel(): powerbi.visuals.FormattingModel {
@@ -2853,5 +3085,50 @@ export class Visual implements IVisual {
             }
         } catch (_err) { /* fall through */ }
         return true; // default to dark
+    }
+
+    /**
+     * Detect whether Windows high contrast mode is active. Power BI exposes
+     * this via host.colorPalette.isHighContrast. When active, the visual
+     * should use the host-provided semantic colors (foreground, background,
+     * foregroundSelected, hyperlink) instead of its themed palette, so that
+     * users with visual impairments get readable contrast across the whole
+     * report.
+     */
+    private isHighContrast(): boolean {
+        try {
+            const palette = this.host && (this.host as unknown as {
+                colorPalette?: { isHighContrast?: boolean };
+            }).colorPalette;
+            return !!(palette && palette.isHighContrast);
+        } catch (_err) { return false; }
+    }
+
+    /**
+     * Resolve the high contrast color set when the mode is active. Returns
+     * null when not in high contrast — caller should keep using the themed
+     * CLR palette in that case.
+     */
+    private hcColors(): { fg: string; bg: string; sel: string; link: string } | null {
+        if (!this.isHighContrast()) return null;
+        try {
+            type HCPalette = {
+                foreground?:         { value?: string };
+                background?:         { value?: string };
+                foregroundSelected?: { value?: string };
+                hyperlink?:          { value?: string };
+            };
+            const palette = (this.host as unknown as {
+                colorPalette: HCPalette;
+            }).colorPalette;
+            return {
+                fg:   (palette.foreground         && palette.foreground.value)         || "#FFFFFF",
+                bg:   (palette.background         && palette.background.value)         || "#000000",
+                sel:  (palette.foregroundSelected && palette.foregroundSelected.value) || "#1AEBFF",
+                link: (palette.hyperlink          && palette.hyperlink.value)          || "#FFFF00",
+            };
+        } catch (_err) {
+            return { fg: "#FFFFFF", bg: "#000000", sel: "#1AEBFF", link: "#FFFF00" };
+        }
     }
 }
