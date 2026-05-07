@@ -30,7 +30,7 @@ interface TooltipField {
     name:  string;
     value: string;
     isNumeric: boolean;
-    order: number;   // user-provided display order (preserved from drag sequence)
+    order: number;
 }
 
 interface SynopticObject {
@@ -42,64 +42,29 @@ interface SynopticObject {
     layoutY?:       number;
     layoutW?:       number;
     layoutH?:       number;
-    // Editor-provided canvas dimensions (Canvas_W / Canvas_H columns).
-    // When present, the visual uses these for fit-scale instead of the
-    // bounding box of the objects — preserves the original aspect ratio
-    // of the design canvas (e.g. 1920x1080) so shapes don't get stretched
-    // when objects only occupy part of the frame.
     canvasW?:       number;
     canvasH?:       number;
-    // Optional URL of the background image. When present, the visual
-    // renders the image beneath the shapes (and rotates with them).
     imageUrl?:      string;
-    // Optional polygon vertex list from the editor. Format: "x,y;x,y;..."
-    // in relative 0-100 coordinates. When present, the object is rendered
-    // as a polygon instead of a rectangle (the rectangle Layout_X/Y/W/H
-    // still carry the bounding box for fallback positioning).
     polygonPoints?: string;
-    // Optional centroid — the editor computes an area-weighted centroid for
-    // each polygon, or honors a manual override placed by the user. When
-    // present, the visual uses this point for label placement and as the
-    // start/end of routes. Critical for irregular polygons (L, U, donut)
-    // where the bbox center falls outside the silhouette. Falls back to
-    // the bbox center when not bound.
-    // Stored in the same 0-100 relative coordinate space as Layout_X/Y.
     centroidX?:     number;
     centroidY?:     number;
-    // Route data — populated from the routeOrder / routeFrom / routeTo /
-    // routeWeight roles when the user binds them. The visual draws lines
-    // connecting object centroids based on these fields. Both modes are
-    // supported: linear (Route_Order on each row) or graph (each row is
-    // an edge with From/To/Weight).
     routeOrder?:    number;
     routeFrom?:     string;
     routeTo?:       string;
     routeWeight?:   number;
-    // All extra fields the user dropped in the Tooltip Fields bucket,
-    // already merged from categories + values and sorted in user order.
     tooltipFields:  TooltipField[];
     selectionId:    ISelectionId;
 }
 
-// ── Palette ───────────────────────────────────────────────────────────────────
-// Curated set: neutral carbon first (default fallback, works on light & dark themes),
-// then semaphore order (red → amber → green), then accents.
 const PALETTE = [
-    // Neutrals
     "#4a5560","#94a3b8","#ffffff",
-    // Semaphore (red, orange, amber, green, teal)
     "#ef4444","#fb923c","#f59e0b","#00e5a0","#2dd4bf",
-    // Cool accents
     "#38bdf8","#a78bfa","#ec4899",
-    // Warm accents
     "#fbbf24","#84cc16","#e879f9",
 ];
 
-// ── Theme — adapts to Power BI report theme via host color palette ────────────
-// PBI calls update() whenever the report theme changes, so we refresh CLR there.
 function isDarkFromBg(bgHex: string): boolean {
-    // Compute relative luminance; treat anything below 0.5 as dark
-    if (!bgHex || bgHex.length < 7) return true; // default to dark
+    if (!bgHex || bgHex.length < 7) return true;
     const r = parseInt(bgHex.slice(1,3),16) / 255;
     const g = parseInt(bgHex.slice(3,5),16) / 255;
     const b = parseInt(bgHex.slice(5,7),16) / 255;
@@ -115,21 +80,16 @@ function getTheme(dark: boolean) {
         border:  dark ? "#202a34" : "#d0dae3",
         hi:      dark ? "#2a3e50" : "#c8d8e8",
         green:   dark ? "#00e5a0" : "#008855",
-        // dim: label text in tooltips / secondary captions — must be clearly readable
         dim:     dark ? "#8aa5b8" : "#4a5a6a",
-        // text: primary body text
         text:    dark ? "#e0eef7" : "#0f1820",
         lo:      dark ? "#0e1418" : "#e8eef2",
-        // muted: description text (info panels, footnotes)
         muted:   dark ? "#a0b8c8" : "#3a4a5a",
         red:     "#ef4444",
         glo:     dark ? "#00301e" : "#d4f0e4",
     };
 }
-// Initialize with dark as sensible default until update() gets the real PBI theme
 let CLR = getTheme(true);
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
 let _uid = 0;
 function uid(): string { return String(Date.now()) + String(_uid++); }
 function clearNode(n: Node): void { while (n.firstChild) n.removeChild(n.firstChild); }
@@ -142,46 +102,25 @@ function hexToRgba(hex: string, a: number): string {
     return `rgba(${r},${g},${b},${a})`;
 }
 
-/**
- * Pick readable text color against a semi-transparent fill over a theme background.
- * The fill in the visual is drawn at ~0.35 alpha, so the perceived color is a mix
- * of the rule color and the theme background. We compute that mix, then decide
- * text color by WCAG luminance.
- * This handles both modes correctly: light theme with pastel fills → dark text;
- * dark theme with muted/darkened fills → light text.
- */
 function readableOn(hex: string, bgHex = "#07090a", alpha = 0.35,
                     darkTxt = "#0a0f14", lightTxt = "#f4f8fb"): string {
     if (!hex || hex.length < 7) return lightTxt;
-    // Parse rule color
     const fr = parseInt(hex.slice(1,3),16) / 255;
     const fg = parseInt(hex.slice(3,5),16) / 255;
     const fb = parseInt(hex.slice(5,7),16) / 255;
-    // Parse theme background
     const br = parseInt(bgHex.slice(1,3),16) / 255;
     const bg = parseInt(bgHex.slice(3,5),16) / 255;
     const bb = parseInt(bgHex.slice(5,7),16) / 255;
-    // Blend: perceived = fill * alpha + bg * (1 - alpha)
     const mr = fr * alpha + br * (1 - alpha);
     const mg = fg * alpha + bg * (1 - alpha);
     const mb = fb * alpha + bb * (1 - alpha);
-    // WCAG relative luminance on the blended color
     const lum = 0.2126*mr + 0.7152*mg + 0.0722*mb;
     return lum >= 0.55 ? darkTxt : lightTxt;
 }
 
-/**
- * Cosmetic cleanup for column display names.
- * Strips common PBI aggregator prefixes ("Sum of ", "Avg of ", etc.),
- * replaces underscores with spaces, and capitalizes the first letter.
- * If the user has explicitly renamed the column ("Rename for this visual"),
- * Power BI passes that custom name through, and our cleanup is gentle enough
- * to leave it intact.
- */
 function cleanFieldName(name: string): string {
     if (!name) return "";
     let out = String(name);
-    // Strip common aggregator prefixes (case-insensitive)
     const prefixes = [
         /^Sum of\s+/i, /^Average of\s+/i, /^Avg of\s+/i, /^Max of\s+/i,
         /^Min of\s+/i, /^Count of\s+/i, /^Count\s+/i,
@@ -189,20 +128,11 @@ function cleanFieldName(name: string): string {
         /^Std dev of\s+/i, /^First\s+/i, /^Last\s+/i,
     ];
     for (const re of prefixes) out = out.replace(re, "");
-    // Replace separators with spaces
     out = out.replace(/[_]+/g, " ").replace(/\s+/g, " ").trim();
-    // Capitalize first letter only (don't title-case — preserves intentional casing)
     if (out.length > 0) out = out.charAt(0).toUpperCase() + out.slice(1);
     return out;
 }
 
-/**
- * Format a value for tooltip display.
- *  - Numbers: thousand separators, up to 2 decimal places when fractional
- *  - Dates: locale short format
- *  - Strings: as-is
- *  - null/undefined: empty string
- */
 function formatTooltipValue(v: unknown): string {
     if (v === null || v === undefined) return "";
     if (v instanceof Date) {
@@ -230,30 +160,12 @@ function svgEl(tag: string, attrs: Record<string,string>): SVGElement {
     return e;
 }
 
-/**
- * Wrap a horizontal-flex container so its overflow becomes scrollable WITHOUT
- * showing a native scrollbar (which steals space, especially on mobile). Adds:
- *  - Mouse wheel translation: vertical wheel scrolls horizontally
- *  - Translucent left/right arrow buttons that appear ONLY when overflow exists
- *    in that direction
- *  - Auto-update on resize and when the container's children change
- *
- * The container must already be styled with display:flex; flexWrap:nowrap.
- * Returns the (now scrollable) inner element so the caller can keep appending
- * children to it.
- */
 function wrapScrollable(container: HTMLElement): HTMLElement {
-    // Make the container itself the scroll viewport
     container.style.overflowX = "auto";
     container.style.overflowY = "hidden";
     container.style.scrollBehavior = "smooth";
-    // Hide native scrollbar (cross-browser):
-    //   - WebKit: ::-webkit-scrollbar { display: none }
-    //   - Firefox: scrollbar-width: none
-    //   - IE/Edge legacy: -ms-overflow-style: none
     (container.style as unknown as Record<string,string>)["scrollbarWidth"] = "none";
     (container.style as unknown as Record<string,string>)["msOverflowStyle"] = "none";
-    // Inject the WebKit rule once (idempotent — checks before adding)
     if (!document.getElementById("syn-scrollable-style")) {
         const st = document.createElement("style");
         st.id = "syn-scrollable-style";
@@ -279,42 +191,30 @@ function wrapScrollable(container: HTMLElement): HTMLElement {
         document.head.appendChild(st);
     }
     container.classList.add("syn-scrollable");
-
-    // Wheel: vertical wheel → horizontal scroll
     container.addEventListener("wheel", (e: WheelEvent) => {
-        // Only intercept if there's actual horizontal overflow
         if (container.scrollWidth <= container.clientWidth) return;
         e.preventDefault();
         e.stopPropagation();
-        // Use whichever delta is larger so trackpads (deltaX) and mice (deltaY) both work
         const dx = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
         container.scrollLeft += dx;
     }, { passive: false, capture: true });
-
-    // The arrows live in the parent (positioned absolutely) so they overlay the
-    // container without affecting its flex children. The container needs to be
-    // inside a positioned parent.
     const parent = container.parentElement;
     if (!parent) return container;
     if (getComputedStyle(parent).position === "static") {
         parent.style.position = "relative";
     }
-
     const left = mk("div"); left.className = "syn-arrow syn-arrow-left";
     left.textContent = "‹"; left.title = "Scroll left";
     const right = mk("div"); right.className = "syn-arrow syn-arrow-right";
     right.textContent = "›"; right.title = "Scroll right";
     parent.appendChild(left);
     parent.appendChild(right);
-
     const STEP = 80;
     left.addEventListener("click",  () => { container.scrollLeft -= STEP; });
     right.addEventListener("click", () => { container.scrollLeft += STEP; });
-
     const updateArrows = () => {
         const max = container.scrollWidth - container.clientWidth;
         const sl  = container.scrollLeft;
-        // 1px tolerance to avoid jitter on subpixel rounding
         if (max <= 1) {
             left.classList.remove("syn-arrow-active");
             right.classList.remove("syn-arrow-active");
@@ -323,23 +223,18 @@ function wrapScrollable(container: HTMLElement): HTMLElement {
         left.classList.toggle("syn-arrow-active",  sl > 1);
         right.classList.toggle("syn-arrow-active", sl < max - 1);
     };
-
     container.addEventListener("scroll", updateArrows);
-    // Watch for size changes (viewport resize, content additions, theme changes)
     if (typeof ResizeObserver !== "undefined") {
         const ro = new ResizeObserver(updateArrows);
         ro.observe(container);
     } else {
         window.addEventListener("resize", updateArrows);
     }
-    // Watch for child additions/removals so arrows update when chips render
     if (typeof MutationObserver !== "undefined") {
         const mo = new MutationObserver(updateArrows);
         mo.observe(container, { childList: true, subtree: false });
     }
-    // Initial check (deferred so layout is measured)
     setTimeout(updateArrows, 0);
-
     return container;
 }
 
@@ -355,16 +250,6 @@ function btn(color: string, bg = "none"): Partial<CSSStyleDeclaration> {
              fontFamily:"'Segoe UI',sans-serif", fontSize:"8px" };
 }
 
-// ── Color engine ──────────────────────────────────────────────────────────────
-
-/**
- * Default rules seeded on first use. Generic 3-level semaphore on Main Value:
- *  - Low     (< 40)    → red
- *  - Medium  (40–70)   → amber
- *  - High    (≥ 70)    → green
- * Users can change everything in the rule editor; these are just a starting point
- * so a freshly-added visual looks meaningful instead of a wall of gray.
- */
 function defaultRules(): ColorRule[] {
     return [
         { id: uid(), field: "valorPrincipal", op: "lt",      value: "40",    value2: "",
@@ -376,13 +261,6 @@ function defaultRules(): ColorRule[] {
     ];
 }
 
-/**
- * Parse a "between" range from the rule.value string. Tolerant format:
- * accepts "3,8", "[3,8]", "(3,8)", "3..8", "3 - 8", with optional decimals.
- * Falls back to [rule.value, rule.value2] for backward compatibility with
- * rules persisted before this change.
- * Returns [min, max] (auto-sorts) or null if unparseable.
- */
 function parseBetween(value: string, value2?: string): [number, number] | null {
     if (value !== undefined && value !== null && String(value).trim() !== "") {
         const s = String(value).trim()
@@ -404,7 +282,6 @@ function parseBetween(value: string, value2?: string): [number, number] | null {
             if (!isNaN(a) && !isNaN(b)) return a <= b ? [a, b] : [b, a];
         }
     }
-    // Legacy fallback: two separate fields
     if (value2 !== undefined) {
         const a = parseFloat(value || "");
         const b = parseFloat(value2);
@@ -420,10 +297,8 @@ function evalRule(rule: ColorRule, obj: SynopticObject): boolean {
     };
     const raw = map[rule.field];
     if (raw === undefined || raw === null) return false;
-    // For categorical operators (eq/neq), empty string is also "no value"
     const isCategoricalOp = rule.op === "eq" || rule.op === "neq";
     if (isCategoricalOp && String(raw).trim() === "") return false;
-    // For numeric operators, the parsed value must be a real number (not NaN)
     const nv = typeof raw === "number" ? raw : parseFloat(String(raw));
     if (!isCategoricalOp && (isNaN(nv) || !isFinite(nv))) return false;
     const rv = parseFloat(rule.value);
@@ -451,38 +326,16 @@ function applyRules(rules: ColorRule[], obj: SynopticObject, fb: string): {color
     return {color:fb,label:"Default"};
 }
 
-// ── Layout ────────────────────────────────────────────────────────────────────
 interface Cell {
     id: string;
     x:  number; y: number; w: number; h: number;
-    // When present, render as polygon using these projected viewport-space points.
-    // The points are computed once from relative 0-100 polygon coordinates and
-    // the canvas frame, so they're aligned with the object's bounding box (x,y,w,h).
     polyPts?: { x: number; y: number }[];
-    // Optional centroid in viewport space (already projected from the editor's
-    // 0-100 relative coordinates). When present, label placement and route
-    // endpoints use this point instead of the bbox center. Critical for
-    // irregular polygons (L, U, donut) where the bbox center falls outside
-    // the silhouette.
     centroidX?: number;
     centroidY?: number;
-    // Effective space around the centroid for label rendering. For rectangles
-    // this is just w/h. For polygons, it's an inscribed-rectangle estimate
-    // based on the centroid → polygon-edge distance, so labels stay inside
-    // the actual silhouette of irregular shapes (e.g. a thin L-shaped polygon
-    // whose bbox is much larger than the visible strip). Falls back to w/h
-    // if not computed.
     availW?: number;
     availH?: number;
 }
 
-/**
- * Parse the editor's polygon points string and project to viewport space.
- * Input format: "x,y;x,y;..." where x,y are relative 0..100 percentages
- *               of the original canvas (cW × cH).
- * Returns a list of viewport-space points ready to feed into <polygon>.
- * Bad / partial input → returns []. Caller checks length before using.
- */
 function parsePolygonPoints(
     raw: string, cW: number, cH: number,
     scale: number, offX: number, offY: number,
@@ -496,7 +349,6 @@ function parsePolygonPoints(
         const rx = parseFloat(xy[0]);
         const ry = parseFloat(xy[1]);
         if (isNaN(rx) || isNaN(ry)) continue;
-        // rx,ry are 0..100 percentages of the canvas; project to viewport
         out.push({
             x: (rx / 100) * cW * scale + offX,
             y: (ry / 100) * cH * scale + offY,
@@ -505,47 +357,17 @@ function parsePolygonPoints(
     return out;
 }
 
-/**
- * Estimate the space available for label rendering around an anchor point
- * inside a polygon. Returns approximate (availW, availH) — the dimensions
- * of an axis-aligned rectangle centered on (ax, ay) that fits inside the
- * polygon's silhouette.
- *
- * Why this matters: for irregular polygons (L, U, thin strips, donuts) the
- * bounding box is much larger than the visible silhouette. Sizing labels by
- * the bbox produces oversized text that overflows the shape. By measuring
- * how far we can extend horizontally and vertically from the anchor before
- * leaving the polygon, we get a much tighter and visually-correct estimate.
- *
- * Method: cast 4 axis-aligned rays (left, right, up, down) from the anchor
- * and find where each one first crosses a polygon edge. The horizontal
- * available width is 2 × min(distLeft, distRight), and similar for height.
- * If the anchor is outside the polygon (defensive) we fall back to the
- * bbox dimensions.
- *
- * The math: for each ray direction, walk every polygon edge and check
- * whether the edge crosses the ray. If it does, compute the intersection
- * distance along the ray and keep the smallest positive one. That's the
- * polygon's nearest edge in that direction.
- */
 function inscribedSpaceAt(
     pts: { x: number; y: number }[],
     ax: number, ay: number,
 ): { availW: number; availH: number } {
     const n = pts.length;
     if (n < 3) return { availW: 0, availH: 0 };
-
-    // Distance from anchor to nearest polygon edge in each axis-aligned direction.
-    // Initialized to +Infinity so that any real intersection wins.
     let dL = Infinity, dR = Infinity, dU = Infinity, dD = Infinity;
-
     for (let i = 0; i < n; i++) {
         const p1 = pts[i];
         const p2 = pts[(i + 1) % n];
-
-        // Horizontal ray (y = ay): check if edge crosses ay
         if ((p1.y <= ay && p2.y > ay) || (p2.y <= ay && p1.y > ay)) {
-            // Linear interpolation: x at y=ay
             const t = (ay - p1.y) / (p2.y - p1.y);
             const xHit = p1.x + t * (p2.x - p1.x);
             if (xHit < ax) {
@@ -556,8 +378,6 @@ function inscribedSpaceAt(
                 if (d < dR) dR = d;
             }
         }
-
-        // Vertical ray (x = ax): check if edge crosses ax
         if ((p1.x <= ax && p2.x > ax) || (p2.x <= ax && p1.x > ax)) {
             const t = (ax - p1.x) / (p2.x - p1.x);
             const yHit = p1.y + t * (p2.y - p1.y);
@@ -570,9 +390,6 @@ function inscribedSpaceAt(
             }
         }
     }
-
-    // If the anchor is outside the polygon, one or more directions never hit.
-    // Fall back to a conservative bbox-derived estimate.
     if (!isFinite(dL) || !isFinite(dR) || !isFinite(dU) || !isFinite(dD)) {
         let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
         for (const p of pts) {
@@ -583,9 +400,6 @@ function inscribedSpaceAt(
         }
         return { availW: maxX - minX, availH: maxY - minY };
     }
-
-    // Use 2× the min of left/right for horizontal, same for vertical.
-    // This guarantees a symmetric label that fits in the silhouette.
     return {
         availW: 2 * Math.min(dL, dR),
         availH: 2 * Math.min(dU, dD),
@@ -604,7 +418,6 @@ function autoLayout(ids: string[], W: number, H: number): Cell[] {
     }));
 }
 
-// ── Tooltip ───────────────────────────────────────────────────────────────────
 function buildTooltip(obj: SynopticObject, color: string, ruleLabel: string,
                       mainValName: string): HTMLElement {
     const wrap = mk("div",{
@@ -626,7 +439,6 @@ function buildTooltip(obj: SynopticObject, color: string, ruleLabel: string,
     });
     bdg.textContent = ruleLabel;
     hdr.appendChild(ttl); hdr.appendChild(bdg); wrap.appendChild(hdr);
-
     const tbl = mk("table",{borderCollapse:"collapse",width:"100%"});
     const addRow = (lbl: string, val: string, isNumeric: boolean) => {
         if (!val) return;
@@ -646,28 +458,21 @@ function buildTooltip(obj: SynopticObject, color: string, ruleLabel: string,
         td2.textContent = val;
         tr.appendChild(td1); tr.appendChild(td2); tbl.appendChild(tr);
     };
-
-    // Main Value first if present (it's the primary metric — drives the fill bar)
     if (obj.valorPrincipal !== undefined && obj.valorPrincipal !== null) {
         addRow(cleanFieldName(mainValName) || "Main Value",
                formatTooltipValue(obj.valorPrincipal),
                true);
     }
-    // Text Field 1 next — the categorical field used by rules
     if (obj.campoTexto1) {
         addRow("Status", formatTooltipValue(obj.campoTexto1), false);
     }
-    // Then user-added tooltip fields, in the order they were dragged.
-    // The array is already merged from numeric+text and sorted by displayOrder.
     for (const f of obj.tooltipFields) {
         addRow(cleanFieldName(f.name), f.value, f.isNumeric);
     }
-
     wrap.appendChild(tbl);
     return wrap;
 }
 
-// ── Rules Editor ──────────────────────────────────────────────────────────────
 const OPS = [
     {k:"eq",l:"= equals"},{k:"neq",l:"≠ not equals"},
     {k:"gt",l:"> greater"},{k:"gte",l:"≥ greater/equal"},
@@ -689,7 +494,6 @@ class RulesEditor {
 
     constructor(parent: HTMLElement, onSave: (r: ColorRule[]) => void) {
         this.onSave = onSave;
-
         this.panel = mk("div",{
             position:"absolute", top:"32px", right:"0",
             width:"550px", maxHeight:"calc(100% - 40px)",
@@ -698,8 +502,6 @@ class RulesEditor {
             zIndex:"1000", display:"none", overflowY:"auto",
             fontFamily:"'Segoe UI',sans-serif",
         });
-
-        // Header
         const hdr = mk("div",{
             padding:"10px 14px", borderBottom:`1px solid ${CLR.border}`,
             display:"flex", justifyContent:"space-between", alignItems:"center",
@@ -716,11 +518,7 @@ class RulesEditor {
         cb.addEventListener("click",()=>this.hide());
         hdr.appendChild(ht); hdr.appendChild(cb);
         this.panel.appendChild(hdr);
-
-        // Body
         const body = mk("div",{padding:"12px 14px"});
-
-        // Info
         const info = mk("div",{
             background:CLR.card, border:`1px solid ${CLR.border}`,
             borderLeft:`3px solid ${CLR.green}`, borderRadius:"6px",
@@ -729,8 +527,6 @@ class RulesEditor {
         });
         info.textContent="Rules evaluate top to bottom — first match sets the color. Use ↑↓ to adjust priority. Checkbox enables/disables without deleting.";
         body.appendChild(info);
-
-        // Palette
         const pb = mk("div",{background:CLR.card,border:`1px solid ${CLR.border}`,
                                borderRadius:"6px",padding:"7px 10px",marginBottom:"10px"});
         const pt = mk("div",{fontSize:"7px",color:CLR.dim,textTransform:"uppercase",
@@ -743,8 +539,6 @@ class RulesEditor {
             d.title=h; pr.appendChild(d);
         });
         pb.appendChild(pr); body.appendChild(pb);
-
-        // Rules header row
         const rh=mk("div",{display:"flex",justifyContent:"space-between",
                              alignItems:"center",marginBottom:"6px"});
         const rl=mk("div",{fontSize:"8px",color:CLR.dim});
@@ -758,17 +552,12 @@ class RulesEditor {
             this.renderList();
         });
         rh.appendChild(rl); rh.appendChild(ab); body.appendChild(rh);
-
         this.listEl=mk("div"); body.appendChild(this.listEl);
-
-        // Legend label
         const ll=mk("div",{fontSize:"7px",color:CLR.dim,textTransform:"uppercase",
                              letterSpacing:".08em",marginTop:"10px",marginBottom:"5px"});
         ll.textContent="LEGEND PREVIEW"; body.appendChild(ll);
         this.legEl=mk("div",{display:"flex",flexWrap:"wrap",gap:"4px"});
         body.appendChild(this.legEl);
-
-        // Save
         const sw=mk("div",{marginTop:"12px",paddingTop:"10px",
                              borderTop:`1px solid ${CLR.border}`,
                              display:"flex",justifyContent:"flex-end"});
@@ -777,7 +566,6 @@ class RulesEditor {
         sb.textContent="✓ Save rules";
         sb.addEventListener("click",()=>{ this.onSave(this.rules); this.hide(); });
         sw.appendChild(sb); body.appendChild(sw);
-
         this.panel.appendChild(body);
         parent.appendChild(this.panel);
     }
@@ -816,8 +604,6 @@ class RulesEditor {
             border:`1px solid ${rule.enabled?hexToRgba(rule.color,.4):CLR.border}`,
             opacity:rule.enabled?"1":"0.45",
         });
-
-        // Toggle
         const ck=mk("div",{
             width:"12px",height:"12px",borderRadius:"2px",flexShrink:"0",
             background:rule.enabled?rule.color:"none",
@@ -825,8 +611,6 @@ class RulesEditor {
         });
         ck.addEventListener("click",()=>{ rule.enabled=!rule.enabled; this.renderList(); });
         row.appendChild(ck);
-
-        // Color dot + popup
         const cd=mk("div",{
             width:"16px",height:"16px",borderRadius:"3px",
             background:rule.color,cursor:"pointer",flexShrink:"0",
@@ -839,7 +623,6 @@ class RulesEditor {
             display:"none",flexWrap:"wrap",gap:"3px",width:"130px",
             boxShadow:"0 8px 24px rgba(0,0,0,.9)",
         });
-        // Tag this popup so we can find and close sibling popups
         pop.setAttribute("data-palette-popup", "1");
         PALETTE.forEach(h=>{
             const s=mk("div",{
@@ -856,20 +639,12 @@ class RulesEditor {
         cd.addEventListener("click",(e)=>{
             e.stopPropagation();
             const opening = pop.style.display === "none";
-            // Close every other open palette before opening this one — prevents
-            // multiple popups stacking on top of each other.
             document.querySelectorAll('[data-palette-popup="1"]').forEach(el => {
                 if (el !== pop) (el as HTMLElement).style.display = "none";
             });
             pop.style.display = opening ? "flex" : "none";
         });
         row.appendChild(cd);
-
-        // Field
-        // (renamed from `fs` — the eslint plugin powerbi-visuals/non-literal-fs-path
-        // confuses any local variable named `fs` with Node.js's filesystem module
-        // and flags appendChild / addEventListener as insecure fs operations. Using
-        // `fSel` sidesteps the false positive.)
         const fSel=mk("select",{...INP,maxWidth:"108px",flexShrink:"0"}) as HTMLSelectElement;
         FIELDS.forEach(f=>{
             const o=document.createElement("option");
@@ -879,8 +654,6 @@ class RulesEditor {
         });
         fSel.addEventListener("change",()=>rule.field=fSel.value);
         row.appendChild(fSel);
-
-        // Op
         const os=mk("select",{...INP,maxWidth:"88px",flexShrink:"0"}) as HTMLSelectElement;
         OPS.forEach(o=>{
             const opt=document.createElement("option");
@@ -890,12 +663,8 @@ class RulesEditor {
         });
         os.addEventListener("change",()=>{ rule.op=os.value; this.renderList(); });
         row.appendChild(os);
-
-        // Value — placeholder adapts to the operator.
-        // For "between" we use a single input that accepts "a, b" (tolerant).
         const vi = mk("input",{...INP,flex:"1",minWidth:"0"}) as HTMLInputElement;
         if (rule.op === "between") {
-            // If coming from the old two-field format, coalesce into "a, b"
             if (!rule.value && rule.value2) {
                 rule.value = rule.value2;
                 rule.value2 = "";
@@ -921,34 +690,25 @@ class RulesEditor {
         });
         validateBetween();
         row.appendChild(vi);
-
-        // Label
         const li=mk("input",{...INP,width:"78px",flexShrink:"0"}) as HTMLInputElement;
         li.value=rule.label; li.placeholder="label";
         li.addEventListener("input",()=>rule.label=li.value);
         row.appendChild(li);
-
-        // Up
         const ub=mk("button",btn(idx===0?CLR.lo:CLR.dim)); ub.textContent="↑";
         (ub as HTMLButtonElement).disabled=idx===0;
         ub.addEventListener("click",()=>{
             if(idx>0){ [this.rules[idx-1],this.rules[idx]]=[this.rules[idx],this.rules[idx-1]]; this.renderList(); }
         });
         row.appendChild(ub);
-
-        // Down
         const db=mk("button",btn(idx===this.rules.length-1?CLR.lo:CLR.dim)); db.textContent="↓";
         (db as HTMLButtonElement).disabled=idx===this.rules.length-1;
         db.addEventListener("click",()=>{
             if(idx<this.rules.length-1){ [this.rules[idx],this.rules[idx+1]]=[this.rules[idx+1],this.rules[idx]]; this.renderList(); }
         });
         row.appendChild(db);
-
-        // Del
         const xb=mk("button",btn(CLR.red)); xb.textContent="✕";
         xb.addEventListener("click",()=>{ this.rules.splice(idx,1); this.renderList(); });
         row.appendChild(xb);
-
         return row;
     }
 }
@@ -965,40 +725,18 @@ export class Visual implements IVisual {
     private fmtSettings: VisualFormattingSettingsModel;
     private selMgr:      ISelectionManager;
     private host:        powerbi.extensibility.visual.IVisualHost;
-    // Whether selections on shapes should propagate to other visuals as
-    // cross-filters. Read from host.hostCapabilities.allowInteractions —
-    // PBI sets this to false in non-interactive contexts (dashboards,
-    // mobile tile preview, etc.). When false, click handlers should still
-    // run for local UI feedback but skip the selectionManager.select call.
     private allowInteractions: boolean = true;
-    // Rendering Events service — used by Power BI to know when the visual
-    // has finished drawing for performance metrics, exports, and
-    // screenshots. We notify it at the start and end of update().
     private events:      powerbi.extensibility.IVisualEventService;
-    // Tooltip service — replaces our custom tooltip with the official
-    // Power BI tooltip API, which respects the report's theme, supports
-    // canvas tooltips, and works correctly across visual boundaries.
     private tooltipSvc:  ITooltipService;
-    // Localization manager — provides localized strings from the visual's
-    // stringResources/<locale>/resources.resjson files based on the user's
-    // Power BI report locale. We use it to resolve display strings shown
-    // in the landing page and (via getString) anywhere the visual surfaces
-    // text that should adapt to the user's language.
     private localization: ILocalizationManager;
     private selectedIds: Set<string>     = new Set();
     private rules:       ColorRule[]     = [];
     private objects:     SynopticObject[]= [];
     private legendFilter: Set<string>      = new Set();
-    // Pan / Zoom / Rotation state
     private panX     = 0;
     private panY     = 0;
     private zoomLevel= 1.0;
-    // Rotation in degrees. 0° = no rotation = the layout/image as authored
-    // in the editor. Buttons map 1:1 to this value.
     private rotation = 0;
-    // True once we've read the persisted rotation from PBI on first update().
-    // Prevents subsequent updates (re-renders, resizes, filter changes) from
-    // overwriting the user's in-session rotation choice.
     private rotationLoaded = false;
     private isPanning= false;
     private panStartX= 0;
@@ -1009,57 +747,50 @@ export class Visual implements IVisual {
     private textLayer:      SVGElement | null = null;
     private labelsGroup:    SVGElement | null = null;
     private fillLayer:      SVGElement | null = null;
-    // Routes layer — sits between fill (semi-transparent overlays inside the
-    // shapes) and labels (text on top). Routes rotate with shapes (live in
-    // transformGroup conceptually) but we render them in viewport space so
-    // line widths stay zoom-aware. Lines connect object centroids based on
-    // the routeOrder / routeFrom-routeTo / routeWeight bindings.
     private routesLayer:    SVGElement | null = null;
     private mainValueName: string = "";
     private fallback     = "#4a5560";
     private showLabel    = true;
     private showValue    = true;
-    private bgOpacity    = 0.5;       // 0..1 — applied to background image
-    // Route rendering settings (read from RoutesCard in update())
+    private bgOpacity    = 0.5;
     private showRoutes      = true;
     private routeColor      = "#00e5a0";
-    private routeThickness  = 2;       // 1..10 base px (zoom-aware at draw time)
-    private routeOpacity    = 0.7;     // 0..1
+    private routeThickness  = 2;
+    private routeOpacity    = 0.7;
     private showArrows      = true;
     private vpW          = 0;
     private vpH          = 0;
-    // Hint banner state machine:
-    //   - shouldShowHint: turns true when missing layouts are detected, stays true
-    //     until the user explicitly dismisses it. Does NOT drop to false just
-    //     because the symptom temporarily disappears (e.g. during render glitches).
-    //   - hintDismissed: set when user clicks ✕. Suppresses the banner until the
-    //     context changes significantly enough to warrant a fresh notification.
-    //   - lastReportedMissing: snapshot of the missing-object count at the time
-    //     the user dismissed the banner. If the count later changes by more than
-    //     a small tolerance, we know the situation evolved and re-arm the hint
-    //     by resetting hintDismissed.
     private shouldShowHint     = false;
     private hintDismissed      = false;
     private lastReportedMissing = -1;
     private currentMissing      = 0;
+
+    // ── RESIZE FIX state ────────────────────────────────────────────────
+    // Last viewport size we actually applied. Used to short-circuit work
+    // when nothing changed (PBI dispatches update() many times even when
+    // the viewport hasn't changed — most can be ignored).
+    private lastAppliedW = 0;
+    private lastAppliedH = 0;
+    // Pending RAF id for the ResizeObserver. We store the id (not just a
+    // boolean flag) so we can CANCEL a pending frame when a newer event
+    // arrives — this guarantees we always process the LATEST size, not
+    // the first one in a burst.
+    private resizeRafId: number | null = null;
+    // The landing page's HTML container (visible only when no data is
+    // bound). It's a plain HTML <div> centered with CSS — the browser
+    // handles re-centering on resize natively, so we don't need any
+    // observer or update logic for it.
+    private landingDiv: HTMLElement | null = null;
 
     constructor(options: VisualConstructorOptions) {
         this.host   = options.host;
         this.target = options.element;
         this.selMgr = this.host.createSelectionManager();
         this.fmtSvc = new FormattingSettingsService();
-        // Optional services — guard with `||` because some host versions
-        // (older PBI Desktop builds, certain test harnesses) may not
-        // expose them. The features degrade gracefully when absent.
         this.events     = this.host.eventService;
         this.tooltipSvc = this.host.tooltipService;
-        // Initialize the localization manager so the visual can read strings
-        // from stringResources/<locale>/resources.resjson. The manager picks
-        // the right locale from the host's report settings and falls back
-        // to en-US when no translation exists for a given key.
         this.localization = this.host.createLocalizationManager();
 
-        // Detect PBI report theme from host color palette
         CLR = getTheme(this.isHostDark());
         this.target.style.cssText=
             `position:relative;width:100%;height:100%;overflow:hidden;`+
@@ -1072,7 +803,6 @@ export class Visual implements IVisual {
             display:"flex",alignItems:"center",padding:"0 10px",gap:"6px",zIndex:"100",
             boxShadow:"0 1px 4px rgba(0,0,0,.15)",
         });
-        // ── Row 1: controls bar ──────────────────────────────────────────────────
         const gb=mk("button",{
             background:CLR.green,border:"none",color:"#07090a",
             borderRadius:"4px",padding:"3px 7px",cursor:"pointer",
@@ -1084,17 +814,14 @@ export class Visual implements IVisual {
         bar.appendChild(gb);
         bar.appendChild(mk("div",{width:"1px",height:"16px",background:CLR.border,
                                    flexShrink:"0",margin:"0 4px"}));
-        // Controls go directly in bar row 1 — scrollable on narrow viewports
         const ctrlWrap=mk("div",{
             display:"flex",alignItems:"center",gap:"3px",
             flex:"1",flexWrap:"nowrap",
         });
         bar.appendChild(ctrlWrap);
         this.target.appendChild(bar);
-        // Make controls scrollable horizontally with translucent edge arrows
         wrapScrollable(ctrlWrap);
 
-        // ── Row 2: legend bar (full width, always visible) ───────────────────
         const legendRow=mk("div",{
             position:"absolute",top:"30px",left:"0",right:"0",
             height:"24px",minHeight:"24px",
@@ -1110,23 +837,29 @@ export class Visual implements IVisual {
         });
         legendRow.appendChild(this.legendBar);
         this.target.appendChild(legendRow);
-        // Make legend scrollable horizontally with translucent edge arrows
         wrapScrollable(this.legendBar);
 
         // Canvas wrapper
         this.wrapper=mk("div",{position:"absolute",top:"54px",left:"0",right:"0",bottom:"0"});
         this.target.appendChild(this.wrapper);
 
-        // SVG — set up persistent structure once
+        // SVG
+        // We set width/height as ABSOLUTE PIXEL values (not "100%") so the
+        // browser does NOT auto-stretch the SVG during a window/visual
+        // resize drag. With "100%" the SVG follows the wrapper's CSS
+        // reflow, which arrives one frame BEFORE our ResizeObserver gets
+        // a chance to reposition contents — producing a one-frame "stretch
+        // then snap back" flicker on every drag delta. By committing the
+        // SVG to a pixel-precise size, the SVG stays fixed until our
+        // observer applies a new size deliberately, which eliminates the
+        // visible stretch entirely.
         this.svg=document.createElementNS("http://www.w3.org/2000/svg","svg") as SVGSVGElement;
-        this.svg.style.cssText="position:absolute;top:0;left:0;width:100%;height:100%";
+        this.svg.style.cssText="position:absolute;top:0;left:0;display:block";
+        // Initial pixel size — observer + update will keep these in sync.
+        this.svg.setAttribute("width",  "1");
+        this.svg.setAttribute("height", "1");
         this.wrapper.appendChild(this.svg);
 
-        // Create persistent layers immediately
-        // Order: bg → shapes (rotates) → fill (upright) → routes (upright) → labels (upright) → compass
-        // Routes sit between fill and labels so they pass over fills but stay
-        // beneath text. Rendered upright in viewport space so line widths
-        // remain zoom-aware.
         const initBg = svgEl("rect",{"id":"bg-rect",width:"100%",height:"100%",fill:CLR.bg});
         this.svg.appendChild(initBg);
         const initTg = svgEl("g",{"id":"transform-group"});
@@ -1145,18 +878,14 @@ export class Visual implements IVisual {
         this.svg.appendChild(initLg);
         this.labelsGroup = initLg;
 
-        // Tooltip
         this.tooltipDiv=document.createElement("div") as HTMLDivElement;
         this.tooltipDiv.style.cssText="position:absolute;display:none;z-index:9999;pointer-events:none";
         this.wrapper.appendChild(this.tooltipDiv);
 
-        // Editor
         this.editor=new RulesEditor(this.target,(rules)=>{
             this.rules=rules;
             const json = JSON.stringify(rules);
             this.fmtSettings.reglaColorCard.reglasJson.value = json;
-            // CRITICAL: persist to PBI so rules survive reload / close-reopen.
-            // Without this the rules only live in memory and get lost.
             this.host.persistProperties({
                 merge: [{
                     objectName: "reglas",
@@ -1169,12 +898,9 @@ export class Visual implements IVisual {
 
         gb.addEventListener("click",(e)=>{ e.stopPropagation(); this.editor.toggle(); });
 
-        // Separator
-        // Controls separator — pushed right, never shrinks
         ctrlWrap.appendChild(mk("div",{width:"1px",height:"20px",background:CLR.border,
                                    marginLeft:"4px",flexShrink:"0"}));
 
-        // Rotation buttons
         const rotLabel = mk("span",{fontSize:"9px",color:CLR.text,
                                      fontFamily:"'Segoe UI',sans-serif",
                                      marginLeft:"4px",fontWeight:"600",flexShrink:"0"});
@@ -1195,16 +921,13 @@ export class Visual implements IVisual {
                 e.stopPropagation();
                 this.rotation=deg;
                 this.panX=0; this.panY=0; this.zoomLevel=1.0;
-                // Re-draw to recalculate fit-scale for the new rotation
                 this.draw();
                 this.drawCompassRotated();
-                // Persist so the rotation survives close/reopen and publishing
                 this.persistRotation();
             });
             ctrlWrap.appendChild(rb);
         });
 
-        // Zoom controls
         ctrlWrap.appendChild(mk("div",{width:"1px",height:"20px",background:CLR.border,
                                    marginLeft:"6px",flexShrink:"0"}));
         const zoomIn=mk("button",{fontFamily:"'Segoe UI',sans-serif",fontSize:"12px",
@@ -1215,10 +938,6 @@ export class Visual implements IVisual {
         zoomIn.addEventListener("click",(e)=>{
             e.stopPropagation();
             this.zoomLevel=Math.min(this.zoomLevel*1.25,5);
-            // Re-draw (not just transform) so shape strokes / text halos that
-            // are zoom-aware recompute their visual width. Without this, the
-            // previously-rendered strokes get scaled by the SVG transform and
-            // appear thicker as the user zooms in.
             this.draw();
         });
         ctrlWrap.appendChild(zoomIn);
@@ -1231,7 +950,6 @@ export class Visual implements IVisual {
         zoomOut.addEventListener("click",(e)=>{
             e.stopPropagation();
             this.zoomLevel=Math.max(this.zoomLevel/1.25,0.2);
-            // Re-draw (see zoomIn comment for rationale).
             this.draw();
         });
         ctrlWrap.appendChild(zoomOut);
@@ -1245,8 +963,6 @@ export class Visual implements IVisual {
         zoomDisplay.textContent="100%";
         ctrlWrap.appendChild(zoomDisplay);
 
-        // Reset button — icon-only, matches the + / − style. Resets zoom, pan,
-        // and rotation back to the natural orientation in one click.
         const resetBtn=mk("button",{fontFamily:"'Segoe UI',sans-serif",fontSize:"12px",
             padding:"1px 9px",background:CLR.card,
             border:`1px solid ${CLR.border}`,color:CLR.text,
@@ -1256,24 +972,19 @@ export class Visual implements IVisual {
         resetBtn.addEventListener("click",(e)=>{
             e.stopPropagation();
             this.panX=0; this.panY=0; this.zoomLevel=1.0; this.rotation=0;
-            // Re-draw to recalculate fit-scale for the reset rotation
             this.draw();
             this.drawCompassRotated();
-            // Persist so the reset rotation survives close/reopen and publishing
             this.persistRotation();
         });
         ctrlWrap.appendChild(resetBtn);
+
         this.svg.addEventListener("click",()=>{
             this.selectedIds.clear(); this.selMgr.clear();
             this.legendFilter.clear();
             this.editor.hide();
             this.drawLegend();
         });
-        // Right-click on empty SVG area: show Power BI's standard context
-        // menu (export data, see records, etc.) with no specific selection.
         this.svg.addEventListener("contextmenu", (e: MouseEvent) => {
-            // Only intercept if the target is the SVG itself (not a shape
-            // group inside it — those have their own contextmenu handlers).
             if (e.target !== this.svg) return;
             e.preventDefault();
             if (this.selMgr && (this.selMgr as ISelectionManager).showContextMenu) {
@@ -1284,10 +995,6 @@ export class Visual implements IVisual {
             }
         });
 
-        // Wheel zoom — use capture to intercept before PBI
-        // During wheel events we use the cheap applyTransform for live response,
-        // then schedule a full draw() after the user stops scrolling so the
-        // zoom-aware strokes / halos recompute to their correct visual width.
         let wheelDebounceTimer: number | null = null;
         this.wrapper.addEventListener("wheel",(e:WheelEvent)=>{
             e.preventDefault();
@@ -1304,43 +1011,115 @@ export class Visual implements IVisual {
             }, 150);
         }, {passive:false, capture:true});
 
-        // Pan — mousedown
-        // PAN_FIX_v1
+        const RESIZE_EDGE_PX = 6;
+        const releasePan = () => {
+            if (this.isPanning) {
+                this.isPanning = false;
+                this.wrapper.style.cursor = "default";
+            }
+        };
         this.wrapper.addEventListener("mousedown",(e:MouseEvent)=>{
-            // Pan only when clicking on truly empty background — the SVG
-            // root itself or the bg-rect (id-based check, robust to layer
-            // changes like the <defs> introduced for polygon clipPaths).
             const target = e.target as Element;
             const targetId = target && target.getAttribute ? target.getAttribute("id") : null;
             const isBackground = target === this.svg || targetId === "bg-rect";
-            if (isBackground) {
-                this.isPanning=true;
-                this.panStartX=e.clientX;
-                this.panStartY=e.clientY;
-                this.panOriginX=this.panX;
-                this.panOriginY=this.panY;
-                this.wrapper.style.cursor="grabbing";
-            }
+            if (!isBackground) return;
+            const r = this.wrapper.getBoundingClientRect();
+            const nearEdge =
+                e.clientX - r.left   < RESIZE_EDGE_PX ||
+                r.right  - e.clientX < RESIZE_EDGE_PX ||
+                e.clientY - r.top    < RESIZE_EDGE_PX ||
+                r.bottom - e.clientY < RESIZE_EDGE_PX;
+            if (nearEdge) return;
+
+            this.isPanning  = true;
+            this.panStartX  = e.clientX;
+            this.panStartY  = e.clientY;
+            this.panOriginX = this.panX;
+            this.panOriginY = this.panY;
+            this.wrapper.style.cursor = "grabbing";
         });
         window.addEventListener("mousemove",(e:MouseEvent)=>{
             if(!this.isPanning) return;
+            if (e.buttons === 0) {
+                releasePan();
+                return;
+            }
             this.panX=this.panOriginX+(e.clientX-this.panStartX);
             this.panY=this.panOriginY+(e.clientY-this.panStartY);
             this.applyTransform();
         });
-        window.addEventListener("mouseup",()=>{
-            if(this.isPanning){
-                this.isPanning=false;
-                this.wrapper.style.cursor="default";
-            }
+        window.addEventListener("mouseup", releasePan);
+        document.addEventListener("mouseup", releasePan);
+        this.wrapper.addEventListener("mouseleave", releasePan);
+        window.addEventListener("blur", releasePan);
+        document.addEventListener("visibilitychange", () => {
+            if (document.hidden) releasePan();
         });
+
+        // ── RESIZE FIX 3: Smart ResizeObserver ──────────────────────────────
+        // Three changes from the previous version:
+        //  1) CANCEL a pending RAF when a newer event arrives → we always
+        //     process the LAST size in a burst, not the first.
+        //  2) Compare against this.lastAppliedW/H → skip work entirely when
+        //     nothing actually changed (PBI fires many redundant events).
+        //  3) Read from TARGET (always sized by PBI) instead of WRAPPER
+        //     (which depends on CSS reflow that may lag behind a frame).
+        if (typeof ResizeObserver !== "undefined") {
+            const ro = new ResizeObserver(() => {
+                if (!this.target) return;
+                // Cancel any pending frame — the new event is more recent.
+                // Without this we'd process the FIRST event in a burst and
+                // skip the rest, causing the visual to lag behind the cursor.
+                if (this.resizeRafId !== null) {
+                    cancelAnimationFrame(this.resizeRafId);
+                }
+                this.resizeRafId = requestAnimationFrame(() => {
+                    this.resizeRafId = null;
+
+                    const tH = this.target.clientHeight;
+                    const tW = this.target.clientWidth;
+                    if (tW <= 0 || tH <= 0) return;
+                    const w = tW;
+                    const h = Math.max(0, tH - 54);
+
+                    // Skip if size didn't actually change.
+                    if (w === this.lastAppliedW && h === this.lastAppliedH) return;
+                    this.lastAppliedW = w;
+                    this.lastAppliedH = h;
+
+                    this.vpW = w;
+                    this.vpH = h;
+                    this.svg.setAttribute("width",  String(w));
+                    this.svg.setAttribute("height", String(h));
+                    const bg = this.svg.getElementById("bg-rect") as SVGElement | null;
+                    if (bg) {
+                        bg.setAttribute("width",  String(w));
+                        bg.setAttribute("height", String(h));
+                    }
+                    this.repositionCompass();
+                    // No need to reposition the landing — it's an HTML div
+                    // with CSS top/left/transform-translate centering, so
+                    // the browser keeps it centered automatically when the
+                    // wrapper resizes.
+                });
+            });
+            ro.observe(this.target);
+        }
+    }
+
+    private repositionCompass(): void {
+        const compassG = this.svg.getElementById("compass-group") as SVGElement | null;
+        if (!compassG) return;
+        const cx = this.vpW - 22;
+        const cy = this.vpH - 22;
+        const oldCx = parseFloat(compassG.getAttribute("data-cx") || String(cx));
+        const oldCy = parseFloat(compassG.getAttribute("data-cy") || String(cy));
+        const dx = cx - oldCx;
+        const dy = cy - oldCy;
+        compassG.setAttribute("transform", `translate(${dx},${dy})`);
     }
 
     public update(options: VisualUpdateOptions): void {
-        // Tell Power BI we're starting a render. PBI uses this to know
-        // when the visual is busy (for screenshots, exports, performance
-        // metrics, the "..." menu freeze detection, etc.). The matching
-        // renderingFinished call is at the end of this method.
         if (this.events) {
             try { this.events.renderingStarted(options); }
             catch { /* host doesn't support events; continue silently */ }
@@ -1348,33 +1127,20 @@ export class Visual implements IVisual {
 
         try {
             this.updateInternal(options);
-            // Notify Power BI that rendering has finished. Symmetric with the
-            // renderingStarted call at the top of this method.
             if (this.events) {
                 try { this.events.renderingFinished(options); }
                 catch { /* host doesn't support events; continue silently */ }
             }
         } catch (err) {
-            // Notify Power BI rendering failed so it can mark the visual as
-            // errored in performance metrics. The visual still tries to show
-            // whatever it managed to render before the error — better partial
-            // output than a blank canvas.
             if (this.events) {
                 try { this.events.renderingFailed(options, err instanceof Error ? err.message : String(err)); }
                 catch { /* host doesn't support events; continue silently */ }
             }
-            // Re-throw so the host shows the error indicator
             throw err;
         }
     }
 
     private updateInternal(options: VisualUpdateOptions): void {
-        // Read the host-provided allowInteractions flag. When the visual
-        // is rendered in a context that does NOT support cross-filtering
-        // (dashboard tiles, mobile previews, certain export modes), this
-        // is false — and we must skip selectionManager.select calls so
-        // we don't try to filter visuals that aren't there. The flag is
-        // documented at: docs.microsoft.com/.../visuals-interactions.
         try {
             const hostCaps = (this.host as unknown as {
                 hostCapabilities?: { allowInteractions?: boolean };
@@ -1387,9 +1153,6 @@ export class Visual implements IVisual {
         }
 
         CLR = getTheme(this.isHostDark());
-        // High contrast override: when the user is using Windows high
-        // contrast mode, replace key palette colors with the host's
-        // semantic colors so the visual remains readable.
         const hc = this.hcColors();
         if (hc) {
             CLR = {
@@ -1412,20 +1175,33 @@ export class Visual implements IVisual {
         this.fmtSettings=this.fmtSvc.populateFormattingSettingsModel(
             VisualFormattingSettingsModel, options.dataViews[0]);
 
-        this.vpW=options.viewport.width;
-        this.vpH=options.viewport.height-54;
-        this.svg.setAttribute("viewBox",`0 0 ${this.vpW} ${this.vpH}`);
+        // Read viewport from the target element. The target is what PBI
+        // sizes directly — always pixel-accurate. We subtract 54px for
+        // the toolbar (30px) + legend row (24px) which sit at the top.
+        const targetW = this.target ? this.target.clientWidth  : 0;
+        const targetH = this.target ? this.target.clientHeight : 0;
+        if (targetW > 0 && targetH > 0) {
+            this.vpW = targetW;
+            this.vpH = Math.max(1, targetH - 54);
+        } else {
+            // Construction-time edge case: target not yet sized.
+            this.vpW = options.viewport.width;
+            this.vpH = Math.max(1, options.viewport.height - 54);
+        }
+        // Mirror to the cache so the observer's "skip if unchanged" check
+        // matches what we just applied.
+        this.lastAppliedW = this.vpW;
+        this.lastAppliedH = this.vpH;
+        this.svg.setAttribute("width",  String(this.vpW));
+        this.svg.setAttribute("height", String(this.vpH));
 
-        // Parse persisted rules. Distinguish between:
-        //  - Never configured (value is empty/null)  → inject defaults
-        //  - User cleared all rules (value is "[]")  → respect empty state
+        // Parse persisted rules
         const persistedRaw = this.fmtSettings.reglaColorCard.reglasJson.value;
         const neverConfigured = persistedRaw === undefined
                              || persistedRaw === null
                              || String(persistedRaw).trim() === "";
         if (neverConfigured) {
             this.rules = defaultRules();
-            // Persist defaults so user sees same rules on reopen
             const seedJson = JSON.stringify(this.rules);
             this.fmtSettings.reglaColorCard.reglasJson.value = seedJson;
             this.host.persistProperties({
@@ -1442,20 +1218,9 @@ export class Visual implements IVisual {
         this.rules = this.rules.map(r => ({...r, id: r.id || uid()}));
         this.editor.load(this.rules);
 
-        // Read persisted rotation — but ONLY on first update. After that, the
-        // user's in-session rotation wins. Without this guard, every re-render
-        // (filter, resize, theme change) would snap rotation back to whatever
-        // is on disk, undoing the user's button click.
         if (!this.rotationLoaded) {
             const persistedRot = this.fmtSettings.generalCard.rotation.value;
             if (typeof persistedRot === "number" && !isNaN(persistedRot)) {
-                // Legacy: older versions persisted rotation in the "internal"
-                // coordinate system where 180 meant "natural / 0°" and the
-                // displayed degrees were offset by 180. Reports authored under
-                // that scheme have rotation:180 saved even when the user
-                // clicked "0°". To honor backward compatibility, we keep
-                // accepting that value as-is — the user can click Reset (or
-                // the 0° button) to migrate to the clean coordinate system.
                 const norm = ((persistedRot % 360) + 360) % 360;
                 if (norm === 0 || norm === 90 || norm === 180 || norm === 270) {
                     this.rotation = norm;
@@ -1467,12 +1232,10 @@ export class Visual implements IVisual {
         this.fallback  =this.fmtSettings.generalCard.colorFallback.value.value||"#4a5560";
         this.showLabel =this.fmtSettings.generalCard.mostrarEtiqueta.value;
         this.showValue =this.fmtSettings.generalCard.mostrarValor.value;
-        // Background image opacity — value is 0-100 in settings, normalize to 0-1
         const rawBgOp = this.fmtSettings.generalCard.backgroundOpacity.value;
         this.bgOpacity = (typeof rawBgOp === "number" && !isNaN(rawBgOp))
             ? Math.max(0, Math.min(1, rawBgOp / 100))
             : 0.5;
-        // Route rendering settings (RoutesCard).
         const routesCard = this.fmtSettings.routesCard;
         this.showRoutes     = routesCard.showRoutes.value;
         this.routeColor     = routesCard.routeColor.value.value || "#00e5a0";
@@ -1494,8 +1257,6 @@ export class Visual implements IVisual {
         const cols = dv.table.columns;
         const rows = dv.table.rows;
 
-        // Build role → column-index lookup. For single-value roles we keep the
-        // first matching column. For tooltipFields (multi) we collect all.
         const colByRole: Record<string, number> = {};
         const tooltipColIdxs: number[] = [];
         cols.forEach((c, i) => {
@@ -1510,13 +1271,10 @@ export class Visual implements IVisual {
             }
         });
 
-        // Capture Main Value display name for the tooltip header row
         this.mainValueName = colByRole["valorPrincipal"] !== undefined
             ? cols[colByRole["valorPrincipal"]].displayName
             : "";
 
-        // Read the displayOrder PBI assigns to each "for/in" item.
-        // Used to preserve the order the user dragged the tooltip fields in.
         const orderOf = (src: powerbi.DataViewMetadataColumn, fallback: number): number => {
             try {
                 const r = src.roles as Record<string, unknown> | undefined;
@@ -1532,7 +1290,6 @@ export class Visual implements IVisual {
             return fallback;
         };
 
-        // Helpers to extract a typed value from a row by role.
         const cellAt = (role: string, rowIdx: number): powerbi.PrimitiveValue | undefined => {
             const ci = colByRole[role];
             if (ci === undefined) return undefined;
@@ -1557,23 +1314,15 @@ export class Visual implements IVisual {
 
         this.objects = [];
 
-        // Diagnostic: log how the imageUrl is being received from PBI.
-        // If the visual gets the URL truncated (e.g. PBI's DataView passes
-        // a string that's too short to be a complete data URI), this log
-        // surfaces the issue. Check the F12 console with the visual loaded.
-        let _diagLoggedImage = false;
-
         for (let i = 0; i < rows.length; i++) {
             const id = strAt("invernadero", i) || String(i);
 
-            // Build tooltipFields array merged from all columns with that role
             const merged: TooltipField[] = [];
             tooltipColIdxs.forEach(idx => {
                 const src = cols[idx];
                 const raw = rows[i][idx];
                 const formatted = formatTooltipValue(raw);
                 if (formatted === "") return;
-                // Decide numeric vs textual by the column's underlying type
                 const isNum = !!(src.type && src.type.numeric);
                 merged.push({
                     name:      src.displayName,
@@ -1584,8 +1333,6 @@ export class Visual implements IVisual {
             });
             merged.sort((a, b) => a.order - b.order);
 
-            // Selection ID — table mapping uses withTable(table, rowIndex).
-            // Falls back to a plain selectionId on older API versions without it.
             let selectionId: ISelectionId;
             try {
                 const builder = this.host.createSelectionIdBuilder() as
@@ -1624,23 +1371,17 @@ export class Visual implements IVisual {
                 selectionId,
             });
         }
-        // Hint visibility is sticky — set in draw() when missing layouts are
-        // detected, and only cleared when the user explicitly dismisses it.
-        // Don't touch the flags here.
         this.draw(); this.drawLegend();
     }
 
     private draw(): void {
         const W=this.vpW, H=this.vpH;
 
-        // Clean up landing page if it was shown (for the empty state).
-        // The next render with data should never have it lingering on top.
-        const landing = this.svg.getElementById("syn-landing");
-        if(landing && landing.parentNode) landing.parentNode.removeChild(landing);
+        // We have data — hide the landing div if it was up.
+        this.hideLanding();
         const oldMsg = this.svg.getElementById("empty-msg");
         if(oldMsg && oldMsg.parentNode) oldMsg.parentNode.removeChild(oldMsg);
 
-        // Update background rect without clearing entire SVG
         let bgRect = this.svg.getElementById("bg-rect") as SVGElement;
         if(!bgRect){
             bgRect = svgEl("rect",{"id":"bg-rect"});
@@ -1650,9 +1391,8 @@ export class Visual implements IVisual {
         bgRect.setAttribute("height",String(H));
         bgRect.setAttribute("fill",CLR.bg);
 
-        if(!this.objects.length){ this.drawEmpty(); return; }
+        if(!this.objects.length) return;
 
-        // Transform group — clear contents only, preserve the element (keeps transform)
         let tg = this.svg.getElementById("transform-group") as SVGElement;
         if(!tg){
             tg = svgEl("g",{"id":"transform-group"});
@@ -1661,7 +1401,6 @@ export class Visual implements IVisual {
         clearNode(tg);
         this.transformGroup = tg;
 
-        // Fill layer — clear contents, keep element (upright, gravity-aware)
         let fl = this.svg.getElementById("fill-layer") as SVGElement;
         if(!fl){
             fl = svgEl("g",{"id":"fill-layer"});
@@ -1670,7 +1409,6 @@ export class Visual implements IVisual {
         clearNode(fl);
         this.fillLayer = fl;
 
-        // Routes layer — clear contents, keep element (upright, between fill and labels)
         let rl = this.svg.getElementById("routes-layer") as SVGElement;
         if(!rl){
             rl = svgEl("g",{"id":"routes-layer"});
@@ -1679,7 +1417,6 @@ export class Visual implements IVisual {
         clearNode(rl);
         this.routesLayer = rl;
 
-        // Text layer — clear contents, keep element
         let tlg = this.svg.getElementById("text-layer") as SVGElement;
         if(!tlg){
             tlg = svgEl("g",{"id":"text-layer"});
@@ -1688,7 +1425,6 @@ export class Visual implements IVisual {
         clearNode(tlg);
         this.textLayer = tlg;
 
-        // Labels group — pan+zoom only, NO rotation
         let lg = this.svg.getElementById("labels-group") as SVGElement;
         if(!lg){
             lg = svgEl("g",{"id":"labels-group"});
@@ -1697,42 +1433,25 @@ export class Visual implements IVisual {
         clearNode(lg);
         this.labelsGroup = lg;
 
-        // Remove old compass before redrawing
         const oldCompass = this.svg.getElementById("compass-group");
         if(oldCompass && oldCompass.parentNode) oldCompass.parentNode.removeChild(oldCompass);
 
-        // Use fixed layout if objects have layoutX/layoutY, else auto-grid
-        // Use fixed layout if any object has layoutX defined
         const objectsWithLayout = this.objects.filter(o =>
             o.layoutX !== undefined && o.layoutY !== undefined);
         const objectsMissingLayout = this.objects.length - objectsWithLayout.length;
         const hasFixed = objectsWithLayout.length > 0;
 
          let layout: Cell[];
-        // bgRect parameters — populated when fixed layout is in use, used to
-        // render the background image inside the transformGroup further down.
         let bgRectX = 0, bgRectY = 0, bgRectW = 0, bgRectH = 0;
         if (hasFixed) {
-            // Detect editor-provided canvas dimensions (Canvas_W, Canvas_H columns).
-            // When present, use them as the source frame for fit-scale — this
-            // preserves the original aspect ratio of the design canvas instead of
-            // collapsing to the objects' bounding box (which stretches shapes when
-            // objects don't fill the frame).
             const editorCW = objectsWithLayout[0].canvasW;
             const editorCH = objectsWithLayout[0].canvasH;
             const useEditorCanvas = typeof editorCW === "number" && editorCW > 0
                                  && typeof editorCH === "number" && editorCH > 0;
- 
-            // The editor exports coordinates as relative percentages 0..100.
-            // We must scale them up to the editor's canvas pixel space before
-            // computing fit, so the relative numbers turn into proportional
-            // positions inside the canvas frame.
+
             const cW = useEditorCanvas ? (editorCW as number) : 1;
             const cH = useEditorCanvas ? (editorCH as number) : 1;
- 
-            // Source bounding box. With editor canvas, srcW/H are the canvas
-            // dimensions themselves — the full design frame. Without editor
-            // canvas (legacy data), fall back to the objects' bounding box.
+
             const srcW = useEditorCanvas
                 ? cW
                 : Math.max(...objectsWithLayout.map(o =>
@@ -1741,9 +1460,7 @@ export class Visual implements IVisual {
                 ? cH
                 : Math.max(...objectsWithLayout.map(o =>
                     (o.layoutY as number) + ((o.layoutH as number | undefined) ?? 46)));
- 
-            // Rotation-aware fit: at 90°/270° the visible bounding box on screen
-            // has W and H swapped.
+
             const norm = ((this.rotation % 360) + 360) % 360;
             const swapped = (norm === 90 || norm === 270);
             const fitW = swapped ? srcH : srcW;
@@ -1751,29 +1468,20 @@ export class Visual implements IVisual {
             const scaleX = W / Math.max(fitW, 1);
             const scaleY = H / Math.max(fitH, 1);
             const scale  = Math.min(scaleX, scaleY) * 0.96;
- 
-            // Center using ORIGINAL dimensions
+
             const offX = (W - srcW * scale) / 2;
             const offY = (H - srcH * scale) / 2;
- 
-            // Save the bgRect frame for the background image renderer further down
+
             bgRectX = offX;
             bgRectY = offY;
             bgRectW = srcW * scale;
             bgRectH = srcH * scale;
- 
-            // Build layout cells. If using editor canvas, multiply relative coords
-            // (0..100 percentages) by canvas dimensions to get pixel positions
-            // inside the design frame, then apply fit-scale.
-            // Polygons additionally project their relative vertex list into
-            // viewport space, which the rendering loop uses for SVG <polygon>.
+
             layout = objectsWithLayout.map(o => {
                 const rawX = o.layoutX as number;
                 const rawY = o.layoutY as number;
                 const rawW = (o.layoutW as number | undefined) ?? 22;
                 const rawH = (o.layoutH as number | undefined) ?? 46;
-                // If editor canvas is present, treat coords as 0..100 relative.
-                // Otherwise, treat them as already in pixel/grid units.
                 const px = useEditorCanvas ? (rawX / 100) * cW : rawX;
                 const py = useEditorCanvas ? (rawY / 100) * cH : rawY;
                 const pw = useEditorCanvas ? (rawW / 100) * cW : rawW;
@@ -1785,19 +1493,12 @@ export class Visual implements IVisual {
                     w:  Math.round(pw * scale),
                     h:  Math.round(ph * scale),
                 };
-                // Parse polygon points if present. Format: "x,y;x,y;..." with
-                // values in relative 0..100 (always — polygons require editor).
                 if (o.polygonPoints && useEditorCanvas) {
                     const parsed = parsePolygonPoints(o.polygonPoints, cW, cH, scale, offX, offY);
                     if (parsed.length >= 3) {
                         cell.polyPts = parsed;
                     }
                 }
-                // Project the editor's centroid (if bound) to viewport space.
-                // The centroid is in the same 0-100 relative coords as Layout_X/Y,
-                // so we apply the same canvas → viewport transform. We only
-                // honor it when useEditorCanvas is true; without the editor's
-                // canvas frame the relative coords have no meaning.
                 if (useEditorCanvas
                     && typeof o.centroidX === "number" && !isNaN(o.centroidX)
                     && typeof o.centroidY === "number" && !isNaN(o.centroidY)
@@ -1807,22 +1508,10 @@ export class Visual implements IVisual {
                     cell.centroidX = Math.round(ccx * scale + offX);
                     cell.centroidY = Math.round(ccy * scale + offY);
                 }
-                // Estimate label-safe space for polygons. For irregular shapes
-                // the bbox can be much larger than the visible silhouette, so
-                // sizing labels by w/h produces overflow. We measure the
-                // distance from the anchor (centroid if present, else bbox
-                // center) to the nearest polygon edge in each axis-aligned
-                // direction, and use that as the label budget. Rectangles
-                // skip this — w/h is already accurate.
                 if (cell.polyPts && cell.polyPts.length >= 3) {
                     const ax = (typeof cell.centroidX === "number") ? cell.centroidX : cell.x + cell.w / 2;
                     const ay = (typeof cell.centroidY === "number") ? cell.centroidY : cell.y + cell.h / 2;
                     const { availW, availH } = inscribedSpaceAt(cell.polyPts, ax, ay);
-                    // Only use the inscribed result if it's tighter than bbox
-                    // (i.e. the polygon is meaningfully smaller than its bbox
-                    // around the anchor). For convex shapes that fully fill
-                    // their bbox, bbox is fine. We also clamp to a minimum
-                    // (4px) so degenerate polygons don't kill labels entirely.
                     cell.availW = Math.max(4, Math.min(cell.w, availW));
                     cell.availH = Math.max(4, Math.min(cell.h, availH));
                 }
@@ -1833,28 +1522,16 @@ export class Visual implements IVisual {
         }
         const cm: Record<string,Cell>={};
         layout.forEach(c=>cm[c.id]=c);
- 
-        // ── Background image ────────────────────────────────────────────────
-        // If any object carries an Image_URL, render the image inside the
-        // transformGroup (so it rotates with the shapes) BEFORE the shapes,
-        // so they sit on top of it. The image uses the bgRect frame computed
-        // from Canvas_W/H above.
+
         const imgUrl = this.objects.find(o => o.imageUrl)?.imageUrl;
         if (imgUrl && bgRectW > 0 && bgRectH > 0) {
             const img = svgEl("image", {
                 href: imgUrl,
-                "xlink:href": imgUrl,  // legacy compat
+                "xlink:href": imgUrl,
                 x:      String(bgRectX),
                 y:      String(bgRectY),
                 width:  String(bgRectW),
                 height: String(bgRectH),
-                // Preserve aspect ratio. If the embedded image's intrinsic
-                // dimensions don't exactly match Canvas_W:Canvas_H (e.g. the
-                // editor exported with one ratio but the embedded JPEG has
-                // a slightly different one because of compression rounding),
-                // "xMidYMid meet" centers the image inside the rectangle and
-                // letterboxes any leftover space — much better than the old
-                // "none" which would stretch the image to fill, distorting it.
                 preserveAspectRatio: "xMidYMid meet",
                 opacity: String(this.bgOpacity),
             });
@@ -1862,32 +1539,16 @@ export class Visual implements IVisual {
             tg.appendChild(img);
         }
 
-        // Surface the hint banner when Main Value is bound AS AN AGGREGATED measure
-        // (e.g. "Sum of X", "Avg of X"). When aggregated, PBI may filter rows where
-        // the measure is null — that's the case where users complain "Muros disappeared".
-        // Detection: the column's displayName starts with a known aggregator prefix.
-        // When the user sets the field to "Don't Summarize", the prefix is absent,
-        // and we don't show the banner (no risk of filtering).
         const aggregatedMVPattern = /^(Sum|Average|Avg|Count|Distinct count|Min|Max|Median|Variance|Std dev|First|Last) of\s+/i;
         const mvIsAggregated = !!this.mainValueName
             && aggregatedMVPattern.test(this.mainValueName);
 
-        // Behavior contract:
-        //   - Show banner immediately when there's risk of filtered rows.
-        //   - Hide banner immediately when the risk is gone (user fixed it
-        //     by switching to Don't Summarize, or unbinding Main Value).
-        //   - User can also dismiss with ✕; that hides until risk reappears
-        //     after a full clean cycle.
         const shouldRiskHint = mvIsAggregated;
         this.currentMissing = objectsMissingLayout;
 
         if (shouldRiskHint) {
-            // If the user previously dismissed and the situation is "still in
-            // risk state", respect that dismissal — don't keep popping back.
-            // Only show if not dismissed.
             this.shouldShowHint = !this.hintDismissed;
         } else {
-            // Risk is gone — hide and reset dismiss so future risk shows fresh.
             this.shouldShowHint = false;
             this.hintDismissed = false;
         }
@@ -1900,15 +1561,9 @@ export class Visual implements IVisual {
             const g=svgEl("g",{});
             g.setAttribute("style","cursor:pointer");
 
-            // Zoom-aware stroke widths for the shape container.
-            // The shape lives in transformGroup which scales with zoom, so a
-            // hard-coded "2" becomes ~16px at 800%. Dividing by zoomLevel keeps
-            // the visual line consistent at any zoom level.
             const baseStrokeW = isSel ? (1.5 / this.zoomLevel) : (0.6 / this.zoomLevel);
             const baseStroke  = isSel ? CLR.green : dimmed ? CLR.border : color + "66";
 
-            // CLIP_POLYGON_FILLS_v1
-            // Container — polygon when polyPts present, otherwise rectangle.
             if (cell.polyPts && cell.polyPts.length >= 3) {
                 const ptsStr = cell.polyPts.map(p => p.x + "," + p.y).join(" ");
                 g.appendChild(svgEl("polygon", {
@@ -1927,30 +1582,23 @@ export class Visual implements IVisual {
                     "stroke-width": String(baseStrokeW),
                 }));
             }
-            // ── Polygon fill clipping ────────────────────────────────────────
-            // Register a clipPath so the rect-shaped fill in fillLayer gets
-            // clipped to the polygon silhouette.
             if (cell.polyPts && cell.polyPts.length >= 3) {
                 this.ensurePolygonClipPath(cell);
             }
 
-            // Store fill + label metadata for upright rendering in fill-layer and labels-group
-            // For polygon cells, also store the clipPath id so the fill renderer
-            // can apply clip-path to keep the fill within the polygon shape.
             if (!dimmed && cell.polyPts && cell.polyPts.length >= 3) {
                 const cellIdForClip = cell["id"];
                 g.setAttribute("data-clip", "syn-clip-" + this.sanitizeIdFragment(cellIdForClip));
+                // Stamp the polygon vertex list (pre-rotation viewport
+                // coordinates) so the fill renderer in applyTransform can
+                // build a polygon-shaped fill that matches the shape's
+                // diagonal edges exactly — no axis-aligned rect clipped
+                // to a polygon (which produced sub-pixel gaps from
+                // antialiasing on the diagonals). Format: "x,y;x,y;..."
+                const polyStr = cell.polyPts.map(p => p.x + "," + p.y).join(";");
+                g.setAttribute("data-poly", polyStr);
             }
             if(!dimmed){
-                // Distinguish three states for Main Value:
-                //  - undefined: field not bound OR row has null → no metric (status-only)
-                //               → fill 100% (full container, just shows existence)
-                //               → no number drawn
-                //               → rules over valorPrincipal won't match (fallback)
-                //  - 0:         real zero (user explicitly has data showing zero)
-                //               → fill 0% (empty), shows "0", rules apply (e.g. < 40 = Low)
-                //  - n:         normal numeric value
-                //               → fill proportional, shows n, rules apply
                 const v = obj.valorPrincipal;
                 const hasMainVal = v !== undefined && v !== null && !isNaN(v as number);
                 g.setAttribute("data-lbl", obj.label);
@@ -1959,22 +1607,23 @@ export class Visual implements IVisual {
                 g.setAttribute("data-pct", hasMainVal
                     ? String(Math.min(Math.max(v as number, 0), 100) / 100)
                     : "1");
-                // Inline secondary field — text1 (categorical) only.
-                // Tooltip Numbers / Tooltip Text are tooltip-only (not inline).
                 g.setAttribute("data-txt1", obj.campoTexto1 ? String(obj.campoTexto1) : "");
-                // Anchor point for inline labels and values. When the editor
-                // bound Centroid_X/Y, use that — places labels inside the
-                // silhouette of irregular polygons (L, U, donut). Falls back
-                // to the bbox center for rectangles or when no centroid was
-                // provided.
+                // anchorX/Y is the LABEL anchor (centroid for polygons,
+                // bbox center for rectangles). Used for label placement.
                 const anchorX = (typeof cell.centroidX === "number") ? cell.centroidX : cell.x + cell.w / 2;
                 const anchorY = (typeof cell.centroidY === "number") ? cell.centroidY : cell.y + cell.h / 2;
                 g.setAttribute("data-cx",  String(anchorX));
                 g.setAttribute("data-cy",  String(anchorY));
+                // bboxCenter is ALWAYS the geometric bbox center (cell.x/y + w/h/2).
+                // The fill rectangle must align to the bbox, NOT the anchor —
+                // otherwise polygons whose centroid is offset from the bbox
+                // center end up with the fill rectangle missing the polygon
+                // edges (visible white gaps after clipping). For rectangles
+                // anchor == bboxCenter, so this is a no-op there.
+                g.setAttribute("data-bx",  String(cell.x + cell.w / 2));
+                g.setAttribute("data-by",  String(cell.y + cell.h / 2));
                 g.setAttribute("data-cw",  String(cell.w));
                 g.setAttribute("data-ch",  String(cell.h));
-                // Label-safe space: tighter than bbox for irregular polygons.
-                // Falls back to bbox for rectangles or shapes that fill their bbox.
                 const aW = (typeof cell.availW === "number") ? cell.availW : cell.w;
                 const aH = (typeof cell.availH === "number") ? cell.availH : cell.h;
                 g.setAttribute("data-aw",  String(aW));
@@ -1982,11 +1631,6 @@ export class Visual implements IVisual {
                 g.setAttribute("data-col", color);
             }
 
-            // Hover highlight — outline that matches the shape (rect or polygon).
-            // Zoom-aware: stroke and inflate are divided by zoomLevel so the
-            // line stays visually consistent (~0.9px) at any zoom. Without this
-            // division, a 1.2px stroke became ~8px at 687% zoom because the
-            // highlight lives in transformGroup which scales with the zoom.
             const hoverStroke  = 0.9 / this.zoomLevel;
             const hoverInflate = 1.5 / this.zoomLevel;
             let hr: SVGElement;
@@ -2041,12 +1685,6 @@ export class Visual implements IVisual {
                 e.stopPropagation();
                 this.tooltipDiv.style.display="none";
                 this.editor.hide();
-                // Update local selected-ids set regardless of interaction mode,
-                // so the visual still shows the click feedback. But only call
-                // selectionManager.select() when the host allows interactions
-                // (per host.hostCapabilities.allowInteractions read in update);
-                // otherwise we'd try to cross-filter in a non-interactive
-                // context (dashboard tile, mobile preview, etc.).
                 if(e.ctrlKey||e.metaKey){
                     this.selectedIds.has(obj.id)?this.selectedIds.delete(obj.id):this.selectedIds.add(obj.id);
                     if (this.allowInteractions) {
@@ -2065,11 +1703,6 @@ export class Visual implements IVisual {
                 }
                 this.draw();
             });
-            // Right-click: show Power BI's standard context menu, which lets
-            // users drill through to other report pages, see related data,
-            // copy values, etc. The default browser context menu is suppressed.
-            // The event coordinates are passed in viewport space so the menu
-            // appears at the cursor.
             g.addEventListener("contextmenu", (e: MouseEvent) => {
                 e.preventDefault();
                 e.stopPropagation();
@@ -2084,59 +1717,21 @@ export class Visual implements IVisual {
             tg.appendChild(g);
         });
 
-        // Apply shape transform first
         if(this.transformGroup) this.applyTransform();
-
-        // Routes — drawn after shapes/fills so they pass over them, but before
-        // labels so labels stay on top. Reads route* fields from this.objects.
         this.drawRoutes(cm);
-
-        // Compass fixed on SVG top
         this.drawCompass(this.vpW, this.vpH);
         this.drawCompassRotated();
-
-        // Show "Show items with no data" hint if suspicious rows were detected
         this.drawHint();
     }
 
-    /**
-     * Render route lines connecting object centroids.
-     *
-     * Two modes are auto-detected from the data:
-     *
-     * 1. Linear mode (Route_Order bound): each row carries a numeric order;
-     *    objects are sorted by that order and connected sequentially:
-     *    obj[0] → obj[1] → obj[2] → ...
-     *    Arrowheads on each segment by default (visualizes traversal).
-     *
-     * 2. Graph mode (Route_From + Route_To bound): each row is an edge.
-     *    Lines connect the centroids of From and To. Optional Route_Weight
-     *    scales line thickness proportionally so heavier edges stand out.
-     *
-     * If both are bound, graph mode wins (more expressive).
-     *
-     * Lines live in routesLayer (upright in viewport space) so line widths
-     * stay zoom-aware. The centroid of each cell is projected through the
-     * current rotation so the lines align with where shapes appear visually.
-     *
-     * The bounding-box center is used as a stand-in for centroid for now —
-     * adequate for most shapes; can be upgraded later to honor a Centroid
-     * data role for irregular polygons.
-     */
     private drawRoutes(cm: Record<string, Cell>): void {
         if (!this.routesLayer) return;
         if (!this.showRoutes || !this.objects.length) return;
 
-        // Detect mode
         const hasOrder = this.objects.some(o => typeof o.routeOrder === "number" && !isNaN(o.routeOrder as number));
         const hasGraph = this.objects.some(o => o.routeFrom && o.routeTo);
         if (!hasOrder && !hasGraph) return;
 
-        // Project a cell's anchor point through the current rotation so the
-        // line endpoints land where the shape appears on screen. If the editor
-        // bound Centroid_X/Y, use that — important for irregular polygons
-        // where the bbox center falls outside the silhouette. Falls back to
-        // the bbox center when no centroid is available.
         const rad = (this.rotation * Math.PI) / 180;
         const cosR = Math.cos(rad), sinR = Math.sin(rad);
         const vcx = this.vpW / 2, vcy = this.vpH / 2;
@@ -2151,12 +1746,10 @@ export class Visual implements IVisual {
             };
         };
 
-        // Build edges as [fromCell, toCell, weight?]
         type Edge = { from: Cell; to: Cell; weight?: number };
         const edges: Edge[] = [];
 
         if (hasGraph) {
-            // Graph mode: each row with both From and To becomes one edge
             for (const o of this.objects) {
                 if (!o.routeFrom || !o.routeTo) continue;
                 const from = cm[o.routeFrom];
@@ -2168,8 +1761,6 @@ export class Visual implements IVisual {
                 });
             }
         } else {
-            // Linear mode: sort objects by routeOrder, connect sequentially.
-            // Filter out rows without a valid order to avoid spurious segments.
             const ordered = this.objects
                 .filter(o => typeof o.routeOrder === "number" && !isNaN(o.routeOrder as number))
                 .sort((a, b) => (a.routeOrder as number) - (b.routeOrder as number));
@@ -2183,8 +1774,6 @@ export class Visual implements IVisual {
 
         if (edges.length === 0) return;
 
-        // For weight-scaled thickness, normalize against the max weight
-        // so the thickest edge ≈ 2× the base, lightest ≈ 0.5×.
         let maxW = 0;
         for (const e of edges) {
             if (typeof e.weight === "number" && e.weight > maxW) maxW = e.weight;
@@ -2192,8 +1781,6 @@ export class Visual implements IVisual {
 
         const baseW = this.routeThickness / this.zoomLevel;
 
-        // Arrowhead marker — registered once in <defs>, reused per edge.
-        // Sized in viewport units; the marker auto-rotates to match line angle.
         const showArrows = this.showArrows;
         if (showArrows) {
             this.ensureArrowMarker();
@@ -2203,13 +1790,11 @@ export class Visual implements IVisual {
             const p0 = projectCenter(e.from);
             const p1 = projectCenter(e.to);
 
-            // Skip degenerate (same point)
             if (Math.abs(p0.x - p1.x) < 0.01 && Math.abs(p0.y - p1.y) < 0.01) continue;
 
-            // Weight-scaled thickness: heavier edges thicker (0.5× to 2× of base)
             let thickness = baseW;
             if (typeof e.weight === "number" && maxW > 0) {
-                const norm = e.weight / maxW;       // 0..1
+                const norm = e.weight / maxW;
                 thickness = baseW * (0.5 + norm * 1.5);
             }
 
@@ -2229,11 +1814,6 @@ export class Visual implements IVisual {
         }
     }
 
-    /**
-     * Register a reusable <marker> for the routes' arrowhead.
-     * Only re-runs if the color or marker doesn't exist yet — calling on
-     * every draw is fine because we update its color attribute each time.
-     */
     private ensureArrowMarker(): void {
         let defs = this.svg.querySelector("defs");
         if (!defs) {
@@ -2256,7 +1836,6 @@ export class Visual implements IVisual {
             marker.appendChild(path);
             defs.appendChild(marker);
         }
-        // Update color each render so it follows the user's setting
         const path = marker.querySelector("path");
         if (path) path.setAttribute("fill", this.routeColor);
     }
@@ -2264,19 +1843,17 @@ export class Visual implements IVisual {
     private drawCompass(W: number, H: number): void {
         const cx = W - 22, cy = H - 22, r = 16;
         const g = svgEl("g",{"id":"compass-group"});
+        g.setAttribute("data-cx", String(cx));
+        g.setAttribute("data-cy", String(cy));
 
-        // ── Stator (always fixed to screen — N is always at top) ─────────────
-        // Outer ring
         g.appendChild(svgEl("circle",{
             cx:String(cx),cy:String(cy),r:String(r),
             fill:CLR.panel,stroke:CLR.border,"stroke-width":"0.7",
         }));
-        // Inner hub
         g.appendChild(svgEl("circle",{
             cx:String(cx),cy:String(cy),r:"1.8",
             fill:CLR.dim,
         }));
-        // Cardinal letters — fixed on screen
         [{l:"N",dx:0,dy:-13,c:"#ef4444"},{l:"S",dx:0,dy:17,c:CLR.dim},
          {l:"E",dx:13,dy:3,c:CLR.dim},   {l:"O",dx:-13,dy:3,c:CLR.dim}]
         .forEach(({l,dx,dy,c}) => {
@@ -2288,15 +1865,11 @@ export class Visual implements IVisual {
             t.textContent=l; g.appendChild(t);
         });
 
-        // ── Rotor (needle — rotates with map) ────────────────────────────────
-        // Wrapped in its own group so drawCompassRotated() can rotate it around (cx,cy)
         const needleGroup = svgEl("g",{"id":"compass-needle-group"});
-        // North half (red — points to map north)
         needleGroup.appendChild(svgEl("polygon",{
             points:`${cx},${cy-10} ${cx+2.5},${cy-1} ${cx-2.5},${cy-1}`,
             fill:"#ef4444",
         }));
-        // South half (dim — points opposite)
         needleGroup.appendChild(svgEl("polygon",{
             points:`${cx},${cy+10} ${cx+2.5},${cy+1} ${cx-2.5},${cy+1}`,
             fill:CLR.dim,
@@ -2308,8 +1881,6 @@ export class Visual implements IVisual {
 
     private drawLegend(): void {
         clearNode(this.legendBar);
-        // Tip displayed when hovering with no chips active — educates about Ctrl+click
-        // without being intrusive. Only first time, dismissable via any chip click.
         this.rules.filter(r=>r.enabled).forEach(r=>{
             const isActive = this.legendFilter.has(r.label);
             const chip=mk("div",{
@@ -2318,7 +1889,6 @@ export class Visual implements IVisual {
                 background: isActive ? hexToRgba(r.color,.28) : hexToRgba(r.color,.10),
                 border:`1px solid ${isActive ? r.color : hexToRgba(r.color,.35)}`,
                 boxShadow: isActive ? `0 0 0 1px ${r.color}55` : "none",
-                // Single-line chip — overflow is handled by the scrollable parent
                 whiteSpace:"nowrap",
                 flexShrink:"0",
             });
@@ -2344,16 +1914,12 @@ export class Visual implements IVisual {
                 e.stopPropagation();
                 const isMulti = e.ctrlKey || e.metaKey;
                 if (isMulti) {
-                    // Ctrl+click — toggle this label in/out of the active selection,
-                    // keeping other active labels untouched.
                     if (this.legendFilter.has(r.label)) {
                         this.legendFilter.delete(r.label);
                     } else {
                         this.legendFilter.add(r.label);
                     }
                 } else {
-                    // Plain click — exclusive selection. Re-click on the same active
-                    // label clears the filter (toggle).
                     if (this.legendFilter.size === 1 && this.legendFilter.has(r.label)) {
                         this.legendFilter.clear();
                     } else {
@@ -2362,10 +1928,6 @@ export class Visual implements IVisual {
                     }
                 }
 
-                // Rebuild the cross-filter selection from the current legendFilter set.
-                // Skip the host-level selection calls when interactions are
-                // disabled, but still update the local selectedIds set so the
-                // legend chips render correctly.
                 this.selectedIds.clear();
                 if (this.allowInteractions) this.selMgr.clear();
                 if (this.legendFilter.size > 0) {
@@ -2374,7 +1936,6 @@ export class Visual implements IVisual {
                         return this.legendFilter.has(res.label);
                     });
                     matching.forEach((obj, i) => {
-                        // i>0 means "add to selection" — accumulates into multi-select
                         if (this.allowInteractions) {
                             this.selMgr.select(obj.selectionId, i > 0);
                         }
@@ -2393,7 +1954,6 @@ export class Visual implements IVisual {
         if(!this.transformGroup) return;
         const W = this.vpW, H = this.vpH;
         const cx = W / 2, cy = H / 2;
-        // Shapes: rotate + scale + pan
         const tShapes = [
             `translate(${cx + this.panX},${cy + this.panY})`,
             `scale(${this.zoomLevel})`,
@@ -2402,7 +1962,6 @@ export class Visual implements IVisual {
         ].join(" ");
         this.transformGroup.setAttribute("transform", tShapes);
 
-        // Labels + Fill: scale + pan only (NO rotate) — always upright, gravity-aware
         const tUpright = [
             `translate(${cx + this.panX},${cy + this.panY})`,
             `scale(${this.zoomLevel})`,
@@ -2412,7 +1971,6 @@ export class Visual implements IVisual {
         if(this.fillLayer)   this.fillLayer.setAttribute("transform", tUpright);
         if(this.routesLayer) this.routesLayer.setAttribute("transform", tUpright);
 
-        // Update rotation button styles — button id matches its rotation degrees
         [0,90,180,270].forEach(deg=>{
             const btn = this.target.querySelector(`#rot-btn-${deg}`) as HTMLElement;
             if(btn){
@@ -2423,17 +1981,13 @@ export class Visual implements IVisual {
             }
         });
 
-        // Update zoom level display
         const zd = this.target.querySelector("#zoom-display") as HTMLElement;
         if(zd) zd.textContent = `${Math.round(this.zoomLevel*100)}%`;
 
-        // Rebuild upright labels + fills — both use the same viewport-space projection
         if(this.labelsGroup && this.fillLayer && this.transformGroup){
             clearNode(this.labelsGroup);
             clearNode(this.fillLayer);
 
-            // Rotation math — same as shape transform, but we project shape centers
-            // into viewport space so fills/labels can be drawn axis-aligned (upright).
             const rad2 = (this.rotation * Math.PI) / 180;
             const cosR2 = Math.cos(rad2), sinR2 = Math.sin(rad2);
             const cx2 = this.vpW/2, cy2 = this.vpH/2;
@@ -2446,11 +2000,13 @@ export class Visual implements IVisual {
             this.transformGroup.querySelectorAll("g[data-lbl]").forEach((g2:Element) => {
                 const gcx = parseFloat(g2.getAttribute("data-cx")||"0");
                 const gcy = parseFloat(g2.getAttribute("data-cy")||"0");
+                // bbox center (pre-rotation) — used for fill rect alignment.
+                // Differs from gcx/gcy for polygons whose centroid is offset
+                // from the bbox center.
+                const gbx = parseFloat(g2.getAttribute("data-bx") || String(gcx));
+                const gby = parseFloat(g2.getAttribute("data-by") || String(gcy));
                 const gcwRaw = parseFloat(g2.getAttribute("data-cw")||"22");
                 const gchRaw = parseFloat(g2.getAttribute("data-ch")||"46");
-                // Label-safe space (tighter than bbox for irregular polygons).
-                // Defaults to cw/ch when not set (rectangles, or polygons that
-                // fill their bbox).
                 const gawRaw = parseFloat(g2.getAttribute("data-aw") || String(gcwRaw));
                 const gahRaw = parseFloat(g2.getAttribute("data-ah") || String(gchRaw));
                 const pct = parseFloat(g2.getAttribute("data-pct")||"0");
@@ -2461,79 +2017,110 @@ export class Visual implements IVisual {
                 const hasVal  = this.showValue && val  !== "";
                 const hasTxt1 = txt1 !== "";
 
-                // When rotated 90°/270°, the visible bounding box of the cell swaps W/H.
-                // The fill and labels are drawn axis-aligned in viewport space, so we
-                // must match the rotated footprint to land inside the container shape.
                 const normRot = ((this.rotation % 360) + 360) % 360;
                 const swap = (normRot === 90 || normRot === 270);
                 const gcw = swap ? gchRaw : gcwRaw;
                 const gch = swap ? gcwRaw : gchRaw;
-                // Same swap logic for the label-safe space
                 const gaw = swap ? gahRaw : gawRaw;
                 const gah = swap ? gawRaw : gahRaw;
 
-                // Project cell center into viewport space — this is where the shape
-                // visually sits after rotation.
+                // Anchor (label placement) and bbox center (fill placement).
+                // For rectangles they coincide; for polygons with a custom
+                // centroid the anchor is the centroid and bbox is geometric.
                 const center = rotPt2(gcx, gcy);
+                const bboxCenter = rotPt2(gbx, gby);
 
-                // ── Gravity-aware fill (always bottom-up in viewport space) ──────
-                // Draw the fill axis-aligned at screen position so gravity is
-                // always "down" for the viewer, regardless of map rotation.
-                // CLIP_FILL_v1
                 if(pct > 0){
-                    // For polygon cells we OVERSIZE the fill rect HORIZONTALLY
-                    // so when it gets clipped by the polygon's clipPath, no
-                    // diagonal edges end up uncovered (the rect is axis-aligned
-                    // but the polygon edges aren't, so a tight bounding-box fill
-                    // leaves visible gaps along the slopes).
-                    //
-                    // VERTICALLY the fill must use the ORIGINAL bounding box
-                    // dimensions — the percentage of fill must reflect the real
-                    // shape height. Bleeding vertically would make every shape
-                    // look 100% filled (bleed extends below the visible polygon,
-                    // so even at 50% pct the rect covers everything visible).
-                    const polyClipId = g2.getAttribute("data-clip");
-                    const isPoly = !!polyClipId;
-                    // Horizontal bleed: covers diagonal edges via clipPath
-                    // (polygons only; rects need a tight fit since edges align).
-                    const hBleed = isPoly ? Math.max(gcw, gch) * 0.5 : 0;
-                    const fillW = gcw + hBleed * 2;
-                    const fillHFull = gch;             // original height
+                    const polyStr = g2.getAttribute("data-poly");
+                    const fillHFull = gch;
                     const fh = fillHFull * pct;
-                    const fx = center.x - fillW/2;
-                    const fy = center.y + fillHFull/2 - fh;
+                    const bottomY = bboxCenter.y + fillHFull/2;
+                    const topY = bottomY - fh;
 
-                    // For polygon cells, wrap the fill in a <g> with clip-path
-                    // pointing to the cell's pre-registered clipPath. The fill
-                    // rect itself stays axis-aligned; the clip restricts the
-                    // visible area to the polygon silhouette.
-                    let fillContainer: SVGElement = this.fillLayer!;
-                    if (polyClipId) {
-                        const clipped = svgEl("g", {
-                            "clip-path": "url(#" + polyClipId + ")",
+                    if (polyStr) {
+                        // ── Polygon-as-fill rendering ────────────────────
+                        // Render the fill USING the same vertices as the
+                        // shape itself, so its diagonal edges match the
+                        // polygon's stroke pixel-perfectly. Then clip the
+                        // polygon by HEIGHT (a rectangular clip from topY
+                        // downward) to enforce the gravity-aware fill
+                        // percentage. This replaces the previous approach
+                        // of "rect clipped by polygon silhouette", which
+                        // left sub-pixel gaps on diagonal edges due to
+                        // antialiasing of two non-aligned shapes.
+                        //
+                        // Parse the points (already in pre-rotation
+                        // viewport coordinates) and project them through
+                        // the same rotation pipeline applied to bboxCenter.
+                        const pts = polyStr.split(";").map(s => {
+                            const xy = s.split(",");
+                            return rotPt2(parseFloat(xy[0]), parseFloat(xy[1]));
                         });
-                        this.fillLayer!.appendChild(clipped);
-                        fillContainer = clipped;
-                    }
+                        const ptsAttr = pts.map(p => p.x + "," + p.y).join(" ");
 
-                    const fr = svgEl("rect",{
-                        x:String(fx), y:String(fy),
-                        width:String(fillW), height:String(fh),
-                        fill:hexToRgba(col,.35),
-                    });
-                    fr.setAttribute("pointer-events","none");
-                    fillContainer.appendChild(fr);
-                    // Accent bar removed — it was a 90%-opacity strip at the
-                    // bottom of each fill that read like a UI banner inside
-                    // the shape (especially on dark/gray cells). The fill
-                    // itself communicates the value; no decoration needed.
+                        // Height-only clip: a rectangular clipPath that
+                        // covers from topY to bottomY across the full
+                        // viewport width. Combined with the polygon-shape
+                        // fill, the visible result is the bottom portion
+                        // of the polygon up to topY.
+                        //
+                        // We register it as a unique clipPath per-cell so
+                        // multiple cells with different fill heights don't
+                        // share a clip and overwrite each other. The id
+                        // includes the cell's clip id (already unique).
+                        const polyClipId = g2.getAttribute("data-clip") || "";
+                        const heightClipId = polyClipId + "-h";
+                        let defs = this.svg.querySelector("defs");
+                        if (!defs) {
+                            defs = document.createElementNS("http://www.w3.org/2000/svg", "defs") as SVGDefsElement;
+                            this.svg.insertBefore(defs, this.svg.firstChild);
+                        }
+                        let hClip = this.svg.querySelector("#" + heightClipId) as SVGClipPathElement | null;
+                        if (!hClip) {
+                            hClip = document.createElementNS("http://www.w3.org/2000/svg", "clipPath") as SVGClipPathElement;
+                            hClip.setAttribute("id", heightClipId);
+                            hClip.setAttribute("clipPathUnits", "userSpaceOnUse");
+                            defs.appendChild(hClip);
+                        }
+                        // Rebuild the height-clip rect every render (fh
+                        // changes with the data percentage; topY changes
+                        // with rotation+resize).
+                        while (hClip.firstChild) hClip.removeChild(hClip.firstChild);
+                        const clipRect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+                        clipRect.setAttribute("x",      String(0));
+                        clipRect.setAttribute("y",      String(topY));
+                        clipRect.setAttribute("width",  String(this.vpW));
+                        clipRect.setAttribute("height", String(fh + 2)); // +2 for rounding tolerance
+                        hClip.appendChild(clipRect);
+
+                        const wrapG = svgEl("g", {
+                            "clip-path": "url(#" + heightClipId + ")",
+                        });
+                        const fillPoly = svgEl("polygon", {
+                            points: ptsAttr,
+                            fill:   hexToRgba(col, .35),
+                        });
+                        fillPoly.setAttribute("pointer-events", "none");
+                        wrapG.appendChild(fillPoly);
+                        this.fillLayer!.appendChild(wrapG);
+                    } else {
+                        // ── Rectangle fill rendering ─────────────────────
+                        // For non-polygon shapes the fill rect aligns
+                        // perfectly with the shape's bbox, no clipping
+                        // needed.
+                        const fx = bboxCenter.x - gcw / 2;
+                        const fy = topY;
+
+                        const fr = svgEl("rect",{
+                            x:String(fx), y:String(fy),
+                            width:String(gcw), height:String(fh),
+                            fill:hexToRgba(col,.35),
+                        });
+                        fr.setAttribute("pointer-events","none");
+                        this.fillLayer!.appendChild(fr);
+                    }
                 }
 
-                // ── Shared rendering helpers ─────────────────────────────────
-                // Zoom-aware halo width — keeps the text outline at the same
-                // visual thickness on screen regardless of zoom. Without this,
-                // at 800% zoom a 1.2px halo became ~10px on screen, looking
-                // like a thick rustic border around each label.
                 const haloScale = 1 / this.zoomLevel;
                 const mkText = (x:number, y:number, text:string, size:number,
                                 weight:string, fill:string,
@@ -2556,61 +2143,29 @@ export class Visual implements IVisual {
                     this.labelsGroup!.appendChild(t);
                 };
 
-                /**
-                 * Auto-fit font size: returns the largest font (≤ maxFs) that
-                 * lets `text` fit inside `availW` pixels horizontally.
-                 * Approximation: avg character width ≈ font × 0.55 (Segoe UI
-                 * is fairly compact). For bold text we use 0.60. Floor at 4px
-                 * (anything smaller is unreadable). Used by both inline and
-                 * stacked layouts to avoid truncation with "...".
-                 */
                 const fitFont = (text: string, maxFs: number, availW: number, bold = false): number => {
                     if (!text) return maxFs;
                     const charW = bold ? 0.60 : 0.55;
                     const widthAt = (fs: number) => fs * charW * text.length;
                     if (widthAt(maxFs) <= availW) return maxFs;
-                    // Solve: fs * charW * len = availW → fs = availW / (charW * len)
                     const fitted = availW / (charW * text.length);
                     return Math.max(4, Math.floor(fitted * 10) / 10);
                 };
 
-                // Pre-compute text colors + halos used across layouts
                 const valTxt   = readableOn(col, CLR.bg, 0.35);
                 const valHalo  = valTxt === "#0a0f14" ? "#f4f8fb" : "#0a0f14";
 
-                // ── Layout decision ──────────────────────────────────────────
-                // isHorizontal: silhouette is meaningfully wider than tall → inline.
-                // Uses available space (gaw/gah) so an L-shaped polygon with a thin
-                // vertical strip gets the stacked layout even if its bbox is square.
                 const isHorizontal = gaw > gah * 1.2;
 
                 if (isHorizontal) {
-                    // ═════════════════════════════════════════════════════════
-                    // INLINE LAYOUT with 4-level progressive collapse
-                    //
-                    // ═════════════════════════════════════════════════════════
-                    // INLINE LAYOUT with 3-level progressive collapse
-                    //
-                    // Level 3 (≥110px):  Label │ Text1 │ MainVal
-                    // Level 2 (75–109px): Label │ MainVal     (drop Text1)
-                    // Level 1 (<75px):    Label only (identity wins; tooltip has rest)
-                    // ═════════════════════════════════════════════════════════
                     const yMid = center.y;
-
-                    // Effective width available for text (leave padding on both sides).
-                    // Uses gaw (label-safe space) which equals gcw for rectangles
-                    // but is tighter for irregular polygons whose silhouette is
-                    // smaller than their bbox.
                     const effW = gaw - 10;
 
-                    // Pick collapse level
                     let level = 1;
                     if      (effW >= 100 && hasTxt1) level = 3;
                     else if (effW >=  70)            level = 2;
                     else                             level = 1;
 
-                    // Font sizes scale with available height inside the silhouette
-                    // (so text fits vertically without overflowing irregular shapes).
                     const fsLbl  = Math.max(5, Math.min(12, gah * 0.50));
                     const fsTxt  = Math.max(5, Math.min(10, gah * 0.38));
                     const fsVal  = Math.max(5, Math.min(11, gah * 0.46));
@@ -2628,12 +2183,7 @@ export class Visual implements IVisual {
                     };
 
                     if (level === 1) {
-                        // Tightest layout — show LABEL (identity wins).
-                        // Value is complementary; if user wants it, they have width
-                        // for level 2+. Tooltip always has the full data.
                         if (this.showLabel && lbl) {
-                            // Auto-fit: never truncate the label, shrink the
-                            // font instead so the full text is always visible.
                             const fittedFs = fitFont(lbl, fsLbl, effW, true);
                             mkText(center.x, yMid, lbl,
                                    fittedFs, "700", CLR.text, CLR.bg, 1.2, 0.5);
@@ -2643,8 +2193,6 @@ export class Visual implements IVisual {
                                    valTxt, valHalo, 1.2, 0.35);
                         }
                     } else if (level === 2) {
-                        // Label │ MainVal — classic 2-field. Positions and slot
-                        // widths use gaw so they stay inside irregular silhouettes.
                         const leftX  = center.x - gaw * 0.30;
                         const rightX = center.x + gaw * 0.30;
                         const sepX   = center.x;
@@ -2663,7 +2211,6 @@ export class Visual implements IVisual {
                                    valTxt, valHalo, 1.2, 0.35, "middle");
                         }
                     } else if (level === 3) {
-                        // Label │ Text1 │ MainVal — 3 fields
                         const x1 = center.x - gaw * 0.35;
                         const x2 = center.x;
                         const x3 = center.x + gaw * 0.35;
@@ -2688,22 +2235,8 @@ export class Visual implements IVisual {
                         }
                     }
                 } else {
-                    // ═════════════════════════════════════════════════════════
-                    // STACKED LAYOUT (cell is vertical, typically 0°/180°)
-                    //
-                    // Information hierarchy (most important first):
-                    //   1. LABEL (object identity)   — always shown if it fits
-                    //   2. MAIN VALUE (the metric)   — shown if there's room
-                    //
-                    // Rationale: in a synoptic map the user needs to identify WHICH
-                    // object they are looking at before its metric. The fill color
-                    // already communicates the rule status, the legend confirms it,
-                    // and the tooltip carries every other field. Don't crowd the cell.
-                    // ═════════════════════════════════════════════════════════
                     const fsLbl = Math.max(5, Math.min(10, gaw/3.5));
                     const fsVal = Math.max(5, Math.min(9,  gaw/4.2));
-                    // Auto-fit: shrink the font so the full label fits in the
-                    // available width. Gives a small horizontal margin (90% of width).
                     const lblFitted = fitFont(lbl, fsLbl, gaw * 0.90, true);
                     const valFitted = fitFont(val, fsVal, gaw * 0.90, true);
 
@@ -2713,7 +2246,6 @@ export class Visual implements IVisual {
                     const showLbl = this.showLabel && !!lbl;
                     const wantVal = hasVal;
 
-                    // Pick the richest layout that fits. Identity wins over metric.
                     let layout: "lbl_val" | "lbl_only" | "val_only" | "none" = "none";
                     if (showLbl && wantVal && gah >= lineLbl + lineVal + 2) {
                         layout = "lbl_val";
@@ -2729,8 +2261,6 @@ export class Visual implements IVisual {
                         mkText(center.x, center.y + gah * 0.22, val, valFitted, "800",
                                valTxt, valHalo, 1.2, 0.35, "middle");
                     } else if (layout === "lbl_only") {
-                        // Allow up to 65% of available height for the single line of
-                        // text, then re-fit horizontally.
                         const fsLblBig = Math.min(fsLbl * 1.5, gah * 0.65);
                         const lblFittedBig = fitFont(lbl, fsLblBig, gaw * 0.90, true);
                         mkText(center.x, center.y, lbl, lblFittedBig, "700",
@@ -2745,26 +2275,15 @@ export class Visual implements IVisual {
     }
 
     private drawCompassRotated(): void {
-        // Rotate only the needle group, around the compass center, so it points
-        // to where the map's north currently is after rotation.
-        // The stator (ring + N/S/E/O letters) stays fixed — N is always up on screen.
         const compassG = this.svg.getElementById("compass-group");
         if(!compassG) return;
         const needleGroup = this.svg.getElementById("compass-needle-group");
         if(!needleGroup) return;
         const cx = this.vpW - 22, cy = this.vpH - 22;
-        // If map is rotated by `rotation` (clockwise), the north that used to point
-        // up now points in that direction — so the needle rotates the same amount.
         needleGroup.setAttribute("transform", `rotate(${this.rotation},${cx},${cy})`);
     }
 
     private positionTip(e: MouseEvent): void {
-        // Quadrant-aware placement so the tooltip never occludes adjacent cells.
-        // It appears in the OPPOSITE quadrant of where the cursor is:
-        //  - cursor top-left    → tooltip bottom-right
-        //  - cursor top-right   → tooltip bottom-left
-        //  - cursor bottom-left → tooltip top-right
-        //  - cursor bottom-right → tooltip top-left
         const cr = this.wrapper.getBoundingClientRect();
         const cx = e.clientX - cr.left;
         const cy = e.clientY - cr.top;
@@ -2772,14 +2291,12 @@ export class Visual implements IVisual {
         const th = this.tooltipDiv.offsetHeight || 140;
         const gap = 16;
 
-        // Decide horizontal side based on cursor position within the visual
         const onRight  = cx > cr.width  * 0.5;
         const onBottom = cy > cr.height * 0.5;
 
         let tx = onRight  ? cx - tw - gap : cx + gap;
         let ty = onBottom ? cy - th - gap : cy + gap;
 
-        // Clamp within visual bounds so the tooltip never overflows
         tx = Math.max(4, Math.min(cr.width  - tw - 4, tx));
         ty = Math.max(4, Math.min(cr.height - th - 4, ty));
 
@@ -2787,25 +2304,11 @@ export class Visual implements IVisual {
         this.tooltipDiv.style.top  = `${ty}px`;
     }
 
-    /**
-     * Sanitize a string to a safe SVG id fragment.
-     * Replaces non-[A-Za-z0-9_-] with '_' and prepends 'c' so the id never
-     * starts with a digit.
-     */
     private sanitizeIdFragment(raw: string): string {
         if (!raw) return "x";
         return "c" + String(raw).replace(/[^A-Za-z0-9_-]/g, "_");
     }
 
-    /**
-     * Register a clipPath for the given polygon cell so its fill (drawn
-     * axis-aligned in fillLayer) is clipped to the polygon silhouette.
-     *
-     * The polygon points (cell.polyPts) live in pre-rotation viewport coords.
-     * The fill is drawn in upright (no-rotation) viewport coords. To match
-     * them we project the polygon points through the same rotation pipeline
-     * as the fill — rotate around the viewport center by this.rotation.
-     */
     private ensurePolygonClipPath(cell: Cell): void {
         if (!cell.polyPts || cell.polyPts.length < 3) return;
 
@@ -2844,11 +2347,6 @@ export class Visual implements IVisual {
         cp.appendChild(poly);
     }
 
-    /**
-     * Persist the current rotation to PBI via host.persistProperties so it
-     * survives close/reopen and report publishing. Mirrors the pattern used
-     * for color rules persistence.
-     */
     private persistRotation(): void {
         try {
             this.fmtSettings.generalCard.rotation.value = this.rotation;
@@ -2862,16 +2360,7 @@ export class Visual implements IVisual {
         } catch (_e) { /* persistence is best-effort */ }
     }
 
-    /**
-     * Show a discreet help banner in the bottom-left when Main Value is bound.
-     * Power BI may filter rows where the aggregated measure is null/blank,
-     * causing objects like infrastructure-only entities to disappear from the
-     * map. The banner reminds users about the 'Show items with no data' option,
-     * which is the official Power BI fix.
-     * The banner is dismissable; once dismissed it stays dismissed for the session.
-     */
     private drawHint(): void {
-        // Remove any existing hint first
         const old = this.target.querySelector("#syn-hint");
         if (old && old.parentNode) old.parentNode.removeChild(old);
 
@@ -2912,8 +2401,6 @@ export class Visual implements IVisual {
             ? `${this.currentMissing} object${this.currentMissing === 1 ? "" : "s"} hidden`
             : "Missing some objects?";
         const msg = mk("div",{color:CLR.muted,fontSize:"10px"});
-        // DOM-safe construction (no innerHTML) — required for AppSource certification.
-        // Build the help message with explicit text nodes and <b> elements.
         const appendBold = (parent: HTMLElement, text: string) => {
             const b = document.createElement("b");
             b.textContent = text;
@@ -2944,8 +2431,6 @@ export class Visual implements IVisual {
         close.addEventListener("click",(e)=>{
             e.stopPropagation();
             this.hintDismissed = true;
-            // Snapshot current count so we can detect later if the situation
-            // changes significantly enough to re-arm a fresh notification.
             this.lastReportedMissing = this.currentMissing;
             if (hint.parentNode) hint.parentNode.removeChild(hint);
         });
@@ -2955,125 +2440,170 @@ export class Visual implements IVisual {
         this.target.appendChild(hint);
     }
 
+    /**
+     * Show the landing page (no-data state) using a plain HTML <div>
+     * centered with CSS transform. The browser keeps it centered when
+     * the wrapper resizes — no JS reposition logic, no observer hooks,
+     * no flicker. Idempotent: if the div already exists we just make
+     * sure it's visible; rebuilding only happens on theme change.
+     */
     private drawEmpty(): void {
-        // Remove hint if any was previously shown
+        // Clear any data-state SVG content so nothing leaks behind the
+        // landing div (e.g. shapes from the previous data binding).
+        const tg = this.svg.getElementById("transform-group");
+        if (tg) clearNode(tg);
+        const fl = this.svg.getElementById("fill-layer");
+        if (fl) clearNode(fl);
+        const rl = this.svg.getElementById("routes-layer");
+        if (rl) clearNode(rl);
+        const tlg = this.svg.getElementById("text-layer");
+        if (tlg) clearNode(tlg);
+        const lg = this.svg.getElementById("labels-group");
+        if (lg) clearNode(lg);
+        // Compass disappears with no data.
+        const compass = this.svg.getElementById("compass-group");
+        if (compass && compass.parentNode) compass.parentNode.removeChild(compass);
+        // Hint banner disappears too.
         const oldHint = this.target.querySelector("#syn-hint");
         if (oldHint && oldHint.parentNode) oldHint.parentNode.removeChild(oldHint);
 
-        const tg2 = this.svg.getElementById("transform-group");
-        if(tg2) clearNode(tg2);
-        const fl2 = this.svg.getElementById("fill-layer");
-        if(fl2) clearNode(fl2);
-        const rl2 = this.svg.getElementById("routes-layer");
-        if(rl2) clearNode(rl2);
-        const tlg2 = this.svg.getElementById("text-layer");
-        if(tlg2) clearNode(tlg2);
-        const lg2 = this.svg.getElementById("labels-group");
-        if(lg2) clearNode(lg2);
-        let bgRect2 = this.svg.getElementById("bg-rect") as SVGElement;
-        if(!bgRect2){
-            bgRect2 = svgEl("rect",{"id":"bg-rect"});
-            this.svg.appendChild(bgRect2);
+        // Background rect tracks the SVG (already sized in updateInternal).
+        let bgRect = this.svg.getElementById("bg-rect") as SVGElement;
+        if (!bgRect) {
+            bgRect = svgEl("rect", { id: "bg-rect" });
+            this.svg.appendChild(bgRect);
         }
-        bgRect2.setAttribute("width",String(this.vpW));
-        bgRect2.setAttribute("height",String(this.vpH));
-        bgRect2.setAttribute("fill",CLR.bg);
+        bgRect.setAttribute("width",  String(this.vpW));
+        bgRect.setAttribute("height", String(this.vpH));
+        bgRect.setAttribute("fill",   CLR.bg);
 
-        // Landing page — a designed empty state that helps the user
-        // understand what data the visual needs. Replaces the bare
-        // "drag a field here" message PBI shows by default. Disposed
-        // automatically the next time draw() runs with data.
-        const oldLanding = this.svg.getElementById("syn-landing");
-        if(oldLanding && oldLanding.parentNode) oldLanding.parentNode.removeChild(oldLanding);
-        const oldMsg = this.svg.getElementById("empty-msg");
-        if(oldMsg && oldMsg.parentNode) oldMsg.parentNode.removeChild(oldMsg);
-
-        const landing = svgEl("g", { id: "syn-landing" });
-        const cx = this.vpW / 2;
-        const cy = this.vpH / 2;
-
-        // Decorative grid icon — a 3x3 of rectangles suggesting a synoptic
-        // layout. Drawn above the title.
-        const iconY = cy - 80;
-        const iconSize = 12;
-        const iconGap = 4;
-        const iconStart = cx - (iconSize * 3 + iconGap * 2) / 2;
-        for (let row = 0; row < 3; row++) {
-            for (let col = 0; col < 3; col++) {
-                const r = svgEl("rect", {
-                    x: String(iconStart + col * (iconSize + iconGap)),
-                    y: String(iconY + row * (iconSize + iconGap)),
-                    width:  String(iconSize),
-                    height: String(iconSize),
-                    rx: "1",
-                    fill: CLR.green,
-                    "fill-opacity": String(0.15 + 0.10 * (row + col)),
-                });
-                landing.appendChild(r);
-            }
-        }
-
-        const title = svgEl("text", {
-            x: String(cx), y: String(cy - 18),
-            "text-anchor": "middle",
-            "font-family": "Segoe UI, sans-serif",
-            "font-size": "16",
-            "font-weight": "700",
-            fill: CLR.text,
-        });
-        // Localized display name. Falls back to English when no translation
-        // is available for the current locale (getDisplayName returns the
-        // key itself when no translation is found, so we check for that).
         const loc = (key: string, fallback: string): string => {
             if (!this.localization) return fallback;
             try {
                 const result = this.localization.getDisplayName(key);
-                // If the manager returns the key unchanged (or empty), no
-                // translation was found — use the English fallback.
                 return (result && result !== key) ? result : fallback;
             } catch (_e) {
                 return fallback;
             }
         };
 
-        title.textContent = loc("LandingPage_Title", "Synoptic Studio");
-        landing.appendChild(title);
+        // Build the landing div ONCE on first call. Subsequent calls just
+        // reuse the existing element (the browser handles centering on
+        // resize, so there's nothing to update).
+        if (!this.landingDiv) {
+            const div = document.createElement("div");
+            div.id = "syn-landing";
+            // CSS-based centering: top/left at 50%, then translate -50%
+            // back to center the element on the wrapper's midpoint.
+            // The wrapper is the parent (top:54px, bottom:0, left:0,
+            // right:0) so 50% of wrapper corresponds to 50% of the
+            // SVG/canvas area. Crucially, this is computed by the
+            // browser at every paint — no JS, no flicker.
+            Object.assign(div.style, {
+                position:      "absolute",
+                top:           "50%",
+                left:          "50%",
+                transform:     "translate(-50%, -50%)",
+                textAlign:     "center",
+                fontFamily:    "'Segoe UI', sans-serif",
+                pointerEvents: "none",
+                userSelect:    "none",
+            });
 
-        const subtitle = svgEl("text", {
-            x: String(cx), y: String(cy + 6),
-            "text-anchor": "middle",
-            "font-family": "Segoe UI, sans-serif",
-            "font-size": "12",
-            fill: CLR.dim,
-        });
-        subtitle.textContent = loc("LandingPage_Subtitle", "Drop your data fields to start.");
-        landing.appendChild(subtitle);
+            // Decorative 3x3 grid icon (suggests a synoptic layout).
+            const icon = document.createElement("div");
+            Object.assign(icon.style, {
+                display:             "grid",
+                gridTemplateColumns: "repeat(3, 12px)",
+                gridGap:             "4px",
+                justifyContent:      "center",
+                marginBottom:        "16px",
+            });
+            for (let i = 0; i < 9; i++) {
+                const dot = document.createElement("div");
+                const row = Math.floor(i / 3);
+                const col = i % 3;
+                Object.assign(dot.style, {
+                    width:        "12px",
+                    height:       "12px",
+                    borderRadius: "1px",
+                    background:   CLR.green,
+                    opacity:      String(0.15 + 0.10 * (row + col)),
+                });
+                icon.appendChild(dot);
+            }
+            div.appendChild(icon);
 
-        const hint = svgEl("text", {
-            x: String(cx), y: String(cy + 30),
-            "text-anchor": "middle",
-            "font-family": "Segoe UI, sans-serif",
-            "font-size": "10",
-            fill: CLR.muted,
-        });
-        hint.textContent = loc(
-            "LandingPage_RequiredFields",
-            "Required: Object ID. Recommended: Layout X/Y/W/H, Canvas W/H.",
-        );
-        landing.appendChild(hint);
+            const title = document.createElement("div");
+            Object.assign(title.style, {
+                fontSize:    "16px",
+                fontWeight:  "700",
+                color:       CLR.text,
+                marginBottom: "6px",
+            });
+            title.textContent = loc("LandingPage_Title", "Synoptic Studio");
+            div.appendChild(title);
 
-        this.svg.appendChild(landing);
+            const subtitle = document.createElement("div");
+            Object.assign(subtitle.style, {
+                fontSize: "12px",
+                color:    CLR.dim,
+                marginBottom: "12px",
+            });
+            subtitle.textContent = loc("LandingPage_Subtitle", "Drop your data fields to start.");
+            div.appendChild(subtitle);
+
+            const hint = document.createElement("div");
+            Object.assign(hint.style, {
+                fontSize: "10px",
+                color:    CLR.muted,
+                maxWidth: "420px",
+                lineHeight: "1.4",
+            });
+            hint.textContent = loc(
+                "LandingPage_RequiredFields",
+                "Required: Object ID. Recommended: Layout X/Y/W/H, Canvas W/H.",
+            );
+            div.appendChild(hint);
+
+            this.wrapper.appendChild(div);
+            this.landingDiv = div;
+        } else {
+            // Theme might have changed since last build (light↔dark, or
+            // high contrast on/off). Refresh the colors that came from
+            // CLR. Cheap — just style attribute writes.
+            const elems = this.landingDiv.children;
+            // 0 = icon container, 1 = title, 2 = subtitle, 3 = hint
+            if (elems.length >= 4) {
+                const icon = elems[0] as HTMLElement;
+                for (let i = 0; i < icon.children.length; i++) {
+                    const dot = icon.children[i] as HTMLElement;
+                    dot.style.background = CLR.green;
+                }
+                (elems[1] as HTMLElement).style.color = CLR.text;
+                (elems[2] as HTMLElement).style.color = CLR.dim;
+                (elems[3] as HTMLElement).style.color = CLR.muted;
+            }
+            // Make sure it's visible (in case data was bound earlier and
+            // we hid it).
+            this.landingDiv.style.display = "";
+        }
+    }
+
+    /**
+     * Hide the landing div when data is bound. Called from draw() before
+     * rendering the data-state. Cheap: just toggles display.
+     */
+    private hideLanding(): void {
+        if (this.landingDiv) {
+            this.landingDiv.style.display = "none";
+        }
     }
 
     public getFormattingModel(): powerbi.visuals.FormattingModel {
         return this.fmtSvc.buildFormattingModel(this.fmtSettings);
     }
 
-    /**
-     * Detect whether the Power BI report theme is dark.
-     * Reads host.colorPalette.background (set by PBI from the active report theme).
-     * Falls back to dark if the host doesn't expose it yet (e.g. during construction).
-     */
     private isHostDark(): boolean {
         try {
             const palette = this.host && (this.host as unknown as {colorPalette?:{background?:{value?:string}}}).colorPalette;
@@ -3084,17 +2614,9 @@ export class Visual implements IVisual {
                     : bg);
             }
         } catch (_err) { /* fall through */ }
-        return true; // default to dark
+        return true;
     }
 
-    /**
-     * Detect whether Windows high contrast mode is active. Power BI exposes
-     * this via host.colorPalette.isHighContrast. When active, the visual
-     * should use the host-provided semantic colors (foreground, background,
-     * foregroundSelected, hyperlink) instead of its themed palette, so that
-     * users with visual impairments get readable contrast across the whole
-     * report.
-     */
     private isHighContrast(): boolean {
         try {
             const palette = this.host && (this.host as unknown as {
@@ -3104,11 +2626,6 @@ export class Visual implements IVisual {
         } catch (_err) { return false; }
     }
 
-    /**
-     * Resolve the high contrast color set when the mode is active. Returns
-     * null when not in high contrast — caller should keep using the themed
-     * CLR palette in that case.
-     */
     private hcColors(): { fg: string; bg: string; sel: string; link: string } | null {
         if (!this.isHighContrast()) return null;
         try {
