@@ -6,13 +6,13 @@
         "visualClassName": "Visual",
         "version": "1.0.0.0",
         "description": "A flexible synoptic map visual: render any layout (greenhouses, factories, building floors, etc.) with rules-based coloring, polygon support, routes, and rich tooltips.",
-        "supportUrl": "https://github.com/Automatajm",
-        "gitHubUrl": "https://github.com/Automatajm"
+        "supportUrl": "https://github.com/Automatajm/synoptic-studio/issues",
+        "gitHubUrl": "https://github.com/Automatajm/synoptic-studio"
     },
     "apiVersion": "5.3.0",
     "author": {
         "name": "Automatajm",
-        "email": "admin@demo.com"
+        "email": "synopticstudio@hotmail.com"
     },
     "assets": {
         "icon": "assets/icon.png"
