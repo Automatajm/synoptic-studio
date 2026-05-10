@@ -776,11 +776,21 @@ export class Visual implements IVisual {
     // arrives — this guarantees we always process the LATEST size, not
     // the first one in a burst.
     private resizeRafId: number | null = null;
-    // The landing page's HTML container (visible only when no data is
-    // bound). It's a plain HTML <div> centered with CSS — the browser
-    // handles re-centering on resize natively, so we don't need any
-    // observer or update logic for it.
-    private landingDiv: HTMLElement | null = null;
+
+    // ── OFFICIAL MICROSOFT LANDING PAGE PATTERN ──────────────────────
+    // Source: https://learn.microsoft.com/en-us/power-bi/developer/visuals/landing-page
+    //
+    // Critical: the landing must be created EXACTLY ONCE, then never
+    // touched again on subsequent updates. The guards below enforce
+    // this — without them, repeated update() calls during a resize
+    // drag would re-render the landing producing visible flicker.
+    //
+    // Requires capabilities.json:
+    //   "supportsLandingPage": true
+    //   "supportsEmptyDataView": true
+    private isLandingPageOn: boolean = false;
+    private isLandingPageRemoved: boolean = false;
+    private landingPage: HTMLElement | null = null;
 
     constructor(options: VisualConstructorOptions) {
         this.host   = options.host;
@@ -855,9 +865,14 @@ export class Visual implements IVisual {
         // visible stretch entirely.
         this.svg=document.createElementNS("http://www.w3.org/2000/svg","svg") as SVGSVGElement;
         this.svg.style.cssText="position:absolute;top:0;left:0;display:block";
-        // Initial pixel size — observer + update will keep these in sync.
-        this.svg.setAttribute("width",  "1");
-        this.svg.setAttribute("height", "1");
+        // Initial size = 100%/100%, exactly like the working lab. While
+        // the landing page is shown, NOTHING touches these attributes —
+        // the browser handles resizing natively via the wrapper's CSS,
+        // which is what kept the lab smooth as butter during drag.
+        // When data binds, draw() sets absolute pixel width/height (the
+        // rest of the rendering pipeline assumes pixel coordinates).
+        this.svg.setAttribute("width",  "100%");
+        this.svg.setAttribute("height", "100%");
         this.wrapper.appendChild(this.svg);
 
         const initBg = svgEl("rect",{"id":"bg-rect",width:"100%",height:"100%",fill:CLR.bg});
@@ -1089,6 +1104,22 @@ export class Visual implements IVisual {
 
                     this.vpW = w;
                     this.vpH = h;
+
+                    // ── LANDING-MODE GATE ───────────────────────────
+                    // When the landing page is showing, the SVG is in
+                    // 100%/100% mode and the browser handles resize
+                    // natively. Setting absolute width/height attributes
+                    // here would override the percentage sizing and
+                    // trigger reflow on the wrapper, which in turn
+                    // displaces the landing div's CSS-translate centering
+                    // by sub-pixel amounts on every observer tick —
+                    // producing the flicker we've been chasing.
+                    //
+                    // This gate is the single piece that distinguishes
+                    // the working lab (which never touched the SVG) from
+                    // the visual real (which did).
+                    if (this.isLandingPageOn) return;
+
                     this.svg.setAttribute("width",  String(w));
                     this.svg.setAttribute("height", String(h));
                     const bg = this.svg.getElementById("bg-rect") as SVGElement | null;
@@ -1097,10 +1128,6 @@ export class Visual implements IVisual {
                         bg.setAttribute("height", String(h));
                     }
                     this.repositionCompass();
-                    // No need to reposition the landing — it's an HTML div
-                    // with CSS top/left/transform-translate centering, so
-                    // the browser keeps it centered automatically when the
-                    // wrapper resizes.
                 });
             });
             ro.observe(this.target);
@@ -1192,8 +1219,13 @@ export class Visual implements IVisual {
         // matches what we just applied.
         this.lastAppliedW = this.vpW;
         this.lastAppliedH = this.vpH;
-        this.svg.setAttribute("width",  String(this.vpW));
-        this.svg.setAttribute("height", String(this.vpH));
+        // SVG width/height are NOT set here. They're set by:
+        //   - draw()           when data is bound (absolute pixels)
+        //   - constructor      sets initial 100%/100%
+        //   - handleLandingPage doesn't touch them (browser handles via CSS)
+        // Setting them here would interfere with landing mode where the
+        // SVG must stay at 100%/100% for the browser-native scaling that
+        // keeps the landing div stable during drag.
 
         // Parse persisted rules
         const persistedRaw = this.fmtSettings.reglaColorCard.reglasJson.value;
@@ -1248,9 +1280,12 @@ export class Visual implements IVisual {
             ? Math.max(0, Math.min(1, rawOp / 100))
             : 0.7;
         this.showArrows     = routesCard.showArrows.value;
+        // Microsoft landing page pattern: handle empty state first.
+        this.handleLandingPage(options);
         const dv = options.dataViews?.[0];
         if (!dv?.table?.rows?.length || !dv.table.columns?.length) {
-            this.drawEmpty();
+            // Landing is now in the DOM (or already was). Nothing more
+            // to render — return without touching anything else.
             return;
         }
 
@@ -1377,8 +1412,17 @@ export class Visual implements IVisual {
     private draw(): void {
         const W=this.vpW, H=this.vpH;
 
-        // We have data — hide the landing div if it was up.
-        this.hideLanding();
+        // Set the SVG to absolute pixel dimensions for data rendering.
+        // The rest of the pipeline (cells, fills, transforms, fitScale)
+        // assumes the SVG coordinate system is 1 unit = 1 pixel. The
+        // observer keeps this in sync during drag — that's fine because
+        // when we're in data mode there is no landing div to flicker;
+        // the shapes get re-rendered on every observer tick.
+        this.svg.setAttribute("width",  String(W));
+        this.svg.setAttribute("height", String(H));
+
+        // Landing was already removed by handleLandingPage when data
+        // became available. Nothing to do here for the landing.
         const oldMsg = this.svg.getElementById("empty-msg");
         if(oldMsg && oldMsg.parentNode) oldMsg.parentNode.removeChild(oldMsg);
 
@@ -2441,42 +2485,96 @@ export class Visual implements IVisual {
     }
 
     /**
-     * Show the landing page (no-data state) using a plain HTML <div>
-     * centered with CSS transform. The browser keeps it centered when
-     * the wrapper resizes — no JS reposition logic, no observer hooks,
-     * no flicker. Idempotent: if the div already exists we just make
-     * sure it's visible; rebuilding only happens on theme change.
+     * Handle the landing page state per the official Microsoft pattern.
+     * Source: https://learn.microsoft.com/en-us/power-bi/developer/visuals/landing-page
+     *
+     * Key invariant: when the landing is up and another update arrives
+     * with no data (e.g. during a resize drag), this function does
+     * NOTHING — the landing is already in the DOM, the browser handles
+     * its centering via CSS transform, and JS staying out of the way is
+     * what eliminates flicker.
+     *
+     * Equally critical: when data binds, the landing is removed exactly
+     * once. The isLandingPageRemoved guard prevents the remove() call
+     * from firing again on every subsequent update.
      */
-    private drawEmpty(): void {
-        // Clear any data-state SVG content so nothing leaks behind the
-        // landing div (e.g. shapes from the previous data binding).
-        const tg = this.svg.getElementById("transform-group");
-        if (tg) clearNode(tg);
-        const fl = this.svg.getElementById("fill-layer");
-        if (fl) clearNode(fl);
-        const rl = this.svg.getElementById("routes-layer");
-        if (rl) clearNode(rl);
-        const tlg = this.svg.getElementById("text-layer");
-        if (tlg) clearNode(tlg);
-        const lg = this.svg.getElementById("labels-group");
-        if (lg) clearNode(lg);
-        // Compass disappears with no data.
-        const compass = this.svg.getElementById("compass-group");
-        if (compass && compass.parentNode) compass.parentNode.removeChild(compass);
-        // Hint banner disappears too.
-        const oldHint = this.target.querySelector("#syn-hint");
-        if (oldHint && oldHint.parentNode) oldHint.parentNode.removeChild(oldHint);
+    private handleLandingPage(options: VisualUpdateOptions): void {
+        const dv = options.dataViews && options.dataViews[0];
+        const noData = !dv || !dv.table || !dv.table.rows
+                    || !dv.table.rows.length
+                    || !dv.table.columns || !dv.table.columns.length;
 
-        // Background rect tracks the SVG (already sized in updateInternal).
-        let bgRect = this.svg.getElementById("bg-rect") as SVGElement;
-        if (!bgRect) {
-            bgRect = svgEl("rect", { id: "bg-rect" });
-            this.svg.appendChild(bgRect);
+        if (noData) {
+            if (!this.isLandingPageOn) {
+                // ── First call with no data: build the landing once ──
+                this.isLandingPageOn = true;
+                this.isLandingPageRemoved = false;
+                this.landingPage = this.createLandingPage();
+                this.target.appendChild(this.landingPage);
+
+                // Also clear any leftover SVG content from a previous
+                // data binding so the landing isn't sitting on top of
+                // stale shapes.
+                const tg = this.svg.getElementById("transform-group");
+                if (tg) clearNode(tg);
+                const fl = this.svg.getElementById("fill-layer");
+                if (fl) clearNode(fl);
+                const rl = this.svg.getElementById("routes-layer");
+                if (rl) clearNode(rl);
+                const tlg = this.svg.getElementById("text-layer");
+                if (tlg) clearNode(tlg);
+                const lg = this.svg.getElementById("labels-group");
+                if (lg) clearNode(lg);
+                const compass = this.svg.getElementById("compass-group");
+                if (compass && compass.parentNode) {
+                    compass.parentNode.removeChild(compass);
+                }
+                const oldHint = this.target.querySelector("#syn-hint");
+                if (oldHint && oldHint.parentNode) {
+                    oldHint.parentNode.removeChild(oldHint);
+                }
+
+                // Background rect tracks the SVG size — set it once
+                // alongside landing creation. Subsequent resizes are
+                // handled by the ResizeObserver which only updates
+                // bg-rect (the landing div uses CSS centering and is
+                // never touched by JS again).
+                let bgRect = this.svg.getElementById("bg-rect") as SVGElement;
+                if (!bgRect) {
+                    bgRect = svgEl("rect", { id: "bg-rect" });
+                    this.svg.appendChild(bgRect);
+                }
+                // bg-rect at 100%/100% tracks the SVG natively. No JS
+                // touches it during landing mode — same principle as
+                // the SVG itself.
+                bgRect.setAttribute("x",      "0");
+                bgRect.setAttribute("y",      "0");
+                bgRect.setAttribute("width",  "100%");
+                bgRect.setAttribute("height", "100%");
+                bgRect.setAttribute("fill",   CLR.bg);
+            }
+            // ── Subsequent updates with no data: DO NOTHING ──
+            // This is the core of the Microsoft pattern. Returning here
+            // without DOM operations is what eliminates flicker during
+            // a resize drag.
+        } else {
+            if (this.isLandingPageOn && !this.isLandingPageRemoved) {
+                // ── Data just bound: remove the landing once ──
+                this.isLandingPageRemoved = true;
+                this.isLandingPageOn = false;
+                if (this.landingPage && this.landingPage.parentNode) {
+                    this.landingPage.parentNode.removeChild(this.landingPage);
+                }
+                this.landingPage = null;
+            }
         }
-        bgRect.setAttribute("width",  String(this.vpW));
-        bgRect.setAttribute("height", String(this.vpH));
-        bgRect.setAttribute("fill",   CLR.bg);
+    }
 
+    /**
+     * Build the HTML landing element. Called only once per landing
+     * lifecycle (on first transition into no-data state).
+     */
+    private createLandingPage(): HTMLElement {
         const loc = (key: string, fallback: string): string => {
             if (!this.localization) return fallback;
             try {
@@ -2487,117 +2585,79 @@ export class Visual implements IVisual {
             }
         };
 
-        // Build the landing div ONCE on first call. Subsequent calls just
-        // reuse the existing element (the browser handles centering on
-        // resize, so there's nothing to update).
-        if (!this.landingDiv) {
-            const div = document.createElement("div");
-            div.id = "syn-landing";
-            // CSS-based centering: top/left at 50%, then translate -50%
-            // back to center the element on the wrapper's midpoint.
-            // The wrapper is the parent (top:54px, bottom:0, left:0,
-            // right:0) so 50% of wrapper corresponds to 50% of the
-            // SVG/canvas area. Crucially, this is computed by the
-            // browser at every paint — no JS, no flicker.
-            Object.assign(div.style, {
-                position:      "absolute",
-                top:           "50%",
-                left:          "50%",
-                transform:     "translate(-50%, -50%)",
-                textAlign:     "center",
-                fontFamily:    "'Segoe UI', sans-serif",
-                pointerEvents: "none",
-                userSelect:    "none",
-            });
+        const div = document.createElement("div");
+        div.id = "syn-landing";
+        // CSS-based centering: top/left at 50%, then translate -50%
+        // back to center the element on the wrapper's midpoint. The
+        // browser computes this at every paint, no JS involved.
+        Object.assign(div.style, {
+            position:      "absolute",
+            top:           "50%",
+            left:          "50%",
+            transform:     "translate(-50%, -50%)",
+            textAlign:     "center",
+            fontFamily:    "'Segoe UI', sans-serif",
+            pointerEvents: "none",
+            userSelect:    "none",
+        });
 
-            // Decorative 3x3 grid icon (suggests a synoptic layout).
-            const icon = document.createElement("div");
-            Object.assign(icon.style, {
-                display:             "grid",
-                gridTemplateColumns: "repeat(3, 12px)",
-                gridGap:             "4px",
-                justifyContent:      "center",
-                marginBottom:        "16px",
+        // Decorative 3×3 grid icon (suggests a synoptic layout).
+        const icon = document.createElement("div");
+        Object.assign(icon.style, {
+            display:             "grid",
+            gridTemplateColumns: "repeat(3, 12px)",
+            gridGap:             "4px",
+            justifyContent:      "center",
+            marginBottom:        "16px",
+        });
+        for (let i = 0; i < 9; i++) {
+            const dot = document.createElement("div");
+            const row = Math.floor(i / 3);
+            const col = i % 3;
+            Object.assign(dot.style, {
+                width:        "12px",
+                height:       "12px",
+                borderRadius: "1px",
+                background:   CLR.green,
+                opacity:      String(0.15 + 0.10 * (row + col)),
             });
-            for (let i = 0; i < 9; i++) {
-                const dot = document.createElement("div");
-                const row = Math.floor(i / 3);
-                const col = i % 3;
-                Object.assign(dot.style, {
-                    width:        "12px",
-                    height:       "12px",
-                    borderRadius: "1px",
-                    background:   CLR.green,
-                    opacity:      String(0.15 + 0.10 * (row + col)),
-                });
-                icon.appendChild(dot);
-            }
-            div.appendChild(icon);
-
-            const title = document.createElement("div");
-            Object.assign(title.style, {
-                fontSize:    "16px",
-                fontWeight:  "700",
-                color:       CLR.text,
-                marginBottom: "6px",
-            });
-            title.textContent = loc("LandingPage_Title", "Synoptic Studio");
-            div.appendChild(title);
-
-            const subtitle = document.createElement("div");
-            Object.assign(subtitle.style, {
-                fontSize: "12px",
-                color:    CLR.dim,
-                marginBottom: "12px",
-            });
-            subtitle.textContent = loc("LandingPage_Subtitle", "Drop your data fields to start.");
-            div.appendChild(subtitle);
-
-            const hint = document.createElement("div");
-            Object.assign(hint.style, {
-                fontSize: "10px",
-                color:    CLR.muted,
-                maxWidth: "420px",
-                lineHeight: "1.4",
-            });
-            hint.textContent = loc(
-                "LandingPage_RequiredFields",
-                "Required: Object ID. Recommended: Layout X/Y/W/H, Canvas W/H.",
-            );
-            div.appendChild(hint);
-
-            this.wrapper.appendChild(div);
-            this.landingDiv = div;
-        } else {
-            // Theme might have changed since last build (light↔dark, or
-            // high contrast on/off). Refresh the colors that came from
-            // CLR. Cheap — just style attribute writes.
-            const elems = this.landingDiv.children;
-            // 0 = icon container, 1 = title, 2 = subtitle, 3 = hint
-            if (elems.length >= 4) {
-                const icon = elems[0] as HTMLElement;
-                for (let i = 0; i < icon.children.length; i++) {
-                    const dot = icon.children[i] as HTMLElement;
-                    dot.style.background = CLR.green;
-                }
-                (elems[1] as HTMLElement).style.color = CLR.text;
-                (elems[2] as HTMLElement).style.color = CLR.dim;
-                (elems[3] as HTMLElement).style.color = CLR.muted;
-            }
-            // Make sure it's visible (in case data was bound earlier and
-            // we hid it).
-            this.landingDiv.style.display = "";
+            icon.appendChild(dot);
         }
-    }
+        div.appendChild(icon);
 
-    /**
-     * Hide the landing div when data is bound. Called from draw() before
-     * rendering the data-state. Cheap: just toggles display.
-     */
-    private hideLanding(): void {
-        if (this.landingDiv) {
-            this.landingDiv.style.display = "none";
-        }
+        const title = document.createElement("div");
+        Object.assign(title.style, {
+            fontSize:     "16px",
+            fontWeight:   "700",
+            color:        CLR.text,
+            marginBottom: "6px",
+        });
+        title.textContent = loc("LandingPage_Title", "Synoptic Studio");
+        div.appendChild(title);
+
+        const subtitle = document.createElement("div");
+        Object.assign(subtitle.style, {
+            fontSize:     "12px",
+            color:        CLR.dim,
+            marginBottom: "12px",
+        });
+        subtitle.textContent = loc("LandingPage_Subtitle", "Drop your data fields to start.");
+        div.appendChild(subtitle);
+
+        const hint = document.createElement("div");
+        Object.assign(hint.style, {
+            fontSize:   "10px",
+            color:      CLR.muted,
+            maxWidth:   "420px",
+            lineHeight: "1.4",
+        });
+        hint.textContent = loc(
+            "LandingPage_RequiredFields",
+            "Required: Object ID. Recommended: Layout X/Y/W/H, Canvas W/H.",
+        );
+        div.appendChild(hint);
+
+        return div;
     }
 
     public getFormattingModel(): powerbi.visuals.FormattingModel {
