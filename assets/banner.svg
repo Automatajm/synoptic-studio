@@ -1,0 +1,114 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 400" width="1200" height="400">
+  <!-- Background gradient -->
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#07090a"/>
+      <stop offset="100%" stop-color="#121820"/>
+    </linearGradient>
+    <linearGradient id="greenGlow" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#00e5a0" stop-opacity="0"/>
+      <stop offset="50%" stop-color="#00e5a0" stop-opacity="0.4"/>
+      <stop offset="100%" stop-color="#00e5a0" stop-opacity="0"/>
+    </linearGradient>
+    <filter id="shadow">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="3"/>
+      <feOffset dx="0" dy="2"/>
+      <feComponentTransfer><feFuncA type="linear" slope="0.4"/></feComponentTransfer>
+      <feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1200" height="400" fill="url(#bgGrad)"/>
+
+  <!-- Subtle accent line -->
+  <line x1="0" y1="380" x2="1200" y2="380" stroke="url(#greenGlow)" stroke-width="2"/>
+
+  <!-- Left side: synoptic map preview (the actual product mini-demo) -->
+  <g transform="translate(80, 80)">
+    <!-- 4x3 grid of shapes representing greenhouses/objects -->
+    <!-- Row 1 -->
+    <rect x="0"   y="0"   width="80" height="60" rx="3" fill="#00e5a0" fill-opacity="0.18" stroke="#00e5a0" stroke-width="1.2"/>
+    <rect x="0"   y="0"   width="80" height="42" rx="3" fill="#00e5a0" fill-opacity="0.35"/>
+    <text x="40" y="35" font-family="Segoe UI, sans-serif" font-size="11" font-weight="700" fill="#e0eef7" text-anchor="middle">A01</text>
+
+    <rect x="90"  y="0"   width="80" height="60" rx="3" fill="#f59e0b" fill-opacity="0.18" stroke="#f59e0b" stroke-width="1.2"/>
+    <rect x="90"  y="22"  width="80" height="38" rx="3" fill="#f59e0b" fill-opacity="0.35"/>
+    <text x="130" y="35" font-family="Segoe UI, sans-serif" font-size="11" font-weight="700" fill="#e0eef7" text-anchor="middle">A02</text>
+
+    <rect x="180" y="0"   width="80" height="60" rx="3" fill="#ef4444" fill-opacity="0.18" stroke="#ef4444" stroke-width="1.2"/>
+    <rect x="180" y="40"  width="80" height="20" rx="3" fill="#ef4444" fill-opacity="0.35"/>
+    <text x="220" y="35" font-family="Segoe UI, sans-serif" font-size="11" font-weight="700" fill="#e0eef7" text-anchor="middle">A03</text>
+
+    <rect x="270" y="0"   width="80" height="60" rx="3" fill="#00e5a0" fill-opacity="0.18" stroke="#00e5a0" stroke-width="1.2"/>
+    <rect x="270" y="12"  width="80" height="48" rx="3" fill="#00e5a0" fill-opacity="0.35"/>
+    <text x="310" y="35" font-family="Segoe UI, sans-serif" font-size="11" font-weight="700" fill="#e0eef7" text-anchor="middle">A04</text>
+
+    <!-- Row 2 -->
+    <rect x="0"   y="70"  width="80" height="60" rx="3" fill="#f59e0b" fill-opacity="0.18" stroke="#f59e0b" stroke-width="1.2"/>
+    <rect x="0"   y="92"  width="80" height="38" rx="3" fill="#f59e0b" fill-opacity="0.35"/>
+    <text x="40" y="105" font-family="Segoe UI, sans-serif" font-size="11" font-weight="700" fill="#e0eef7" text-anchor="middle">B01</text>
+
+    <rect x="90"  y="70"  width="80" height="60" rx="3" fill="#00e5a0" fill-opacity="0.18" stroke="#00e5a0" stroke-width="1.2"/>
+    <rect x="90"  y="78"  width="80" height="52" rx="3" fill="#00e5a0" fill-opacity="0.35"/>
+    <text x="130" y="105" font-family="Segoe UI, sans-serif" font-size="11" font-weight="700" fill="#e0eef7" text-anchor="middle">B02</text>
+
+    <rect x="180" y="70"  width="80" height="60" rx="3" fill="#00e5a0" fill-opacity="0.18" stroke="#00e5a0" stroke-width="1.2"/>
+    <rect x="180" y="86"  width="80" height="44" rx="3" fill="#00e5a0" fill-opacity="0.35"/>
+    <text x="220" y="105" font-family="Segoe UI, sans-serif" font-size="11" font-weight="700" fill="#e0eef7" text-anchor="middle">B03</text>
+
+    <rect x="270" y="70"  width="80" height="60" rx="3" fill="#ef4444" fill-opacity="0.18" stroke="#ef4444" stroke-width="1.2"/>
+    <rect x="270" y="100" width="80" height="30" rx="3" fill="#ef4444" fill-opacity="0.35"/>
+    <text x="310" y="105" font-family="Segoe UI, sans-serif" font-size="11" font-weight="700" fill="#e0eef7" text-anchor="middle">B04</text>
+
+    <!-- Row 3 -->
+    <rect x="0"   y="140" width="80" height="60" rx="3" fill="#00e5a0" fill-opacity="0.18" stroke="#00e5a0" stroke-width="1.2"/>
+    <rect x="0"   y="148" width="80" height="52" rx="3" fill="#00e5a0" fill-opacity="0.35"/>
+    <text x="40" y="175" font-family="Segoe UI, sans-serif" font-size="11" font-weight="700" fill="#e0eef7" text-anchor="middle">C01</text>
+
+    <rect x="90"  y="140" width="80" height="60" rx="3" fill="#f59e0b" fill-opacity="0.18" stroke="#f59e0b" stroke-width="1.2"/>
+    <rect x="90"  y="166" width="80" height="34" rx="3" fill="#f59e0b" fill-opacity="0.35"/>
+    <text x="130" y="175" font-family="Segoe UI, sans-serif" font-size="11" font-weight="700" fill="#e0eef7" text-anchor="middle">C02</text>
+
+    <rect x="180" y="140" width="80" height="60" rx="3" fill="#00e5a0" fill-opacity="0.18" stroke="#00e5a0" stroke-width="1.2"/>
+    <rect x="180" y="155" width="80" height="45" rx="3" fill="#00e5a0" fill-opacity="0.35"/>
+    <text x="220" y="175" font-family="Segoe UI, sans-serif" font-size="11" font-weight="700" fill="#e0eef7" text-anchor="middle">C03</text>
+
+    <rect x="270" y="140" width="80" height="60" rx="3" fill="#00e5a0" fill-opacity="0.18" stroke="#00e5a0" stroke-width="1.2"/>
+    <rect x="270" y="145" width="80" height="55" rx="3" fill="#00e5a0" fill-opacity="0.35"/>
+    <text x="310" y="175" font-family="Segoe UI, sans-serif" font-size="11" font-weight="700" fill="#e0eef7" text-anchor="middle">C04</text>
+  </g>
+
+  <!-- Right side: title + tagline -->
+  <g transform="translate(540, 130)">
+    <!-- Wordmark "Synoptic Studio" -->
+    <text x="0" y="0" font-family="Segoe UI, sans-serif" font-size="56" font-weight="800" fill="#e0eef7" letter-spacing="-1.5">Synoptic</text>
+    <text x="0" y="60" font-family="Segoe UI, sans-serif" font-size="56" font-weight="800" fill="#00e5a0" letter-spacing="-1.5">Studio</text>
+
+    <!-- Tagline -->
+    <text x="0" y="105" font-family="Segoe UI, sans-serif" font-size="16" font-weight="500" fill="#a0b8c8">Power BI custom visual for synoptic maps</text>
+    <text x="0" y="130" font-family="Segoe UI, sans-serif" font-size="14" font-weight="400" fill="#8aa5b8">rules-based coloring · polygon support · routes · cross-filter</text>
+  </g>
+
+  <!-- Top-right: version badge -->
+  <g transform="translate(1080, 36)">
+    <rect x="-50" y="-14" width="100" height="26" rx="13" fill="#00e5a0" fill-opacity="0.15" stroke="#00e5a0" stroke-width="1"/>
+    <text x="0" y="4" font-family="Segoe UI, sans-serif" font-size="11" font-weight="700" fill="#00e5a0" text-anchor="middle">v1.2.0</text>
+  </g>
+
+  <!-- Bottom-left: subtle author line -->
+  <text x="80" y="370" font-family="Segoe UI, sans-serif" font-size="10" font-weight="500" fill="#5a7080" letter-spacing="0.5">github.com/Automatajm/synoptic-studio</text>
+
+  <!-- Decorative compass in bottom right -->
+  <g transform="translate(1120, 340)">
+    <circle r="22" fill="#0d1318" stroke="#202a34" stroke-width="0.8"/>
+    <text y="-13" font-family="Segoe UI, sans-serif" font-size="7" font-weight="700" fill="#ef4444" text-anchor="middle">N</text>
+    <text x="17" y="3"  font-family="Segoe UI, sans-serif" font-size="7" font-weight="700" fill="#8aa5b8" text-anchor="middle">E</text>
+    <text y="17"  font-family="Segoe UI, sans-serif" font-size="7" font-weight="700" fill="#8aa5b8" text-anchor="middle">S</text>
+    <text x="-17" y="3" font-family="Segoe UI, sans-serif" font-size="7" font-weight="700" fill="#8aa5b8" text-anchor="middle">W</text>
+    <polygon points="0,-14 3,-1 -3,-1" fill="#ef4444"/>
+    <polygon points="0,14 3,1 -3,1" fill="#8aa5b8"/>
+    <circle r="2" fill="#5a7080"/>
+  </g>
+</svg>
