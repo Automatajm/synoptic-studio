@@ -12,9 +12,3 @@ Thumbs.db
 *.clip.bak
 *.clipv2.bak
 *.lint.bak
-
-# Patcher backups
-*.bak
-
-# Patcher backups
-*.bak
