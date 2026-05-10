@@ -2,31 +2,31 @@
     "dataRoles": [
         {
             "displayName": "Object ID",
-            "name": "invernadero",
+            "name": "objectId",
             "kind": "Grouping",
             "description": "Unique identifier for each object on the canvas (e.g. A01, Table-12, Seat-05)",
-            "displayNameKey": "Role_Invernadero_DisplayName"
+            "displayNameKey": "Role_ObjectId_DisplayName"
         },
         {
             "displayName": "Label",
-            "name": "etiqueta",
+            "name": "label",
             "kind": "Grouping",
             "description": "Display name shown inside each object. Defaults to Object ID if not set.",
-            "displayNameKey": "Role_Etiqueta_DisplayName"
+            "displayNameKey": "Role_Label_DisplayName"
         },
         {
             "displayName": "Main Value",
-            "name": "valorPrincipal",
+            "name": "mainValue",
             "kind": "GroupingOrMeasure",
             "description": "Primary numeric value. Drives the fill bar (0-100 = percentage). Optional \u2014 leave empty for status-only visuals.",
-            "displayNameKey": "Role_ValorPrincipal_DisplayName"
+            "displayNameKey": "Role_MainValue_DisplayName"
         },
         {
             "displayName": "Text Field 1",
-            "name": "campoTexto1",
+            "name": "textField1",
             "kind": "Grouping",
             "description": "Categorical field used by color rules (e.g. Status, State, Category)",
-            "displayNameKey": "Role_CampoTexto1_DisplayName"
+            "displayNameKey": "Role_TextField1_DisplayName"
         },
         {
             "displayName": "Tooltip Fields",
@@ -135,36 +135,36 @@
         }
     ],
     "objects": {
-        "reglas": {
+        "colorRules": {
             "displayName": "Color Rules",
             "properties": {
-                "reglasJson": {
+                "rulesJson": {
                     "displayName": "Rules (JSON)",
                     "description": "Internal: color-rule definitions. Edit via the built-in Rules editor (gear icon).",
                     "type": {
                         "text": true
                     },
-                    "displayNameKey": "Object_Reglas_ReglasJson_DisplayName"
+                    "displayNameKey": "Object_ColorRules_RulesJson_DisplayName"
                 }
             },
-            "displayNameKey": "Object_Reglas_DisplayName"
+            "displayNameKey": "Object_ColorRules_DisplayName"
         },
         "general": {
             "displayName": "General",
             "properties": {
-                "mostrarEtiqueta": {
+                "showLabel": {
                     "displayName": "Show label",
                     "type": {
                         "bool": true
                     },
-                    "displayNameKey": "Object_Etiquetas_ShowLabel_DisplayName"
+                    "displayNameKey": "Object_General_ShowLabel_DisplayName"
                 },
-                "mostrarValor": {
+                "showValue": {
                     "displayName": "Show main value",
                     "type": {
                         "bool": true
                     },
-                    "displayNameKey": "Object_Etiquetas_ShowValue_DisplayName"
+                    "displayNameKey": "Object_General_ShowValue_DisplayName"
                 },
                 "colorFallback": {
                     "displayName": "Default color",
@@ -259,22 +259,22 @@
                     "select": [
                         {
                             "bind": {
-                                "to": "invernadero"
+                                "to": "objectId"
                             }
                         },
                         {
                             "bind": {
-                                "to": "etiqueta"
+                                "to": "label"
                             }
                         },
                         {
                             "bind": {
-                                "to": "campoTexto1"
+                                "to": "textField1"
                             }
                         },
                         {
                             "bind": {
-                                "to": "valorPrincipal"
+                                "to": "mainValue"
                             }
                         },
                         {

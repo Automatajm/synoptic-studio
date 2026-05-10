@@ -1,18 +1,16 @@
 {
     "Visual_DisplayName": "Synoptic Studio",
-    "Visual_Description": "Visual sinóptico flexible: renderiza cualquier layout (invernaderos, fábricas, plantas, etc.) con coloreado por reglas, soporte de polígonos, rutas y tooltips enriquecidos.",
+    "Visual_Description": "Visual sin\u00f3ptico flexible: renderiza cualquier layout (invernaderos, f\u00e1bricas, plantas, etc.) con coloreado por reglas, soporte de pol\u00edgonos, rutas y tooltips enriquecidos.",
 
     "Object_General_DisplayName": "General",
-    "Object_General_Rotation_DisplayName": "Rotación",
-    "Object_General_Rotation_Description": "Rotación inicial del layout en grados (0, 90, 180, 270).",
+    "Object_General_ShowLabel_DisplayName": "Mostrar etiqueta",
+    "Object_General_ShowValue_DisplayName": "Mostrar valor",
+    "Object_General_Rotation_DisplayName": "Rotaci\u00f3n",
+    "Object_General_Rotation_Description": "Rotaci\u00f3n inicial del layout en grados (0, 90, 180, 270).",
 
-    "Object_Reglas_DisplayName": "Reglas de color",
-    "Object_Reglas_ReglasJson_DisplayName": "Reglas (interno)",
-    "Object_Reglas_ReglasJson_Description": "JSON persistido de reglas. Editá en el editor de reglas del visual.",
-
-    "Object_Etiquetas_DisplayName": "Etiquetas",
-    "Object_Etiquetas_ShowLabel_DisplayName": "Mostrar etiqueta",
-    "Object_Etiquetas_ShowValue_DisplayName": "Mostrar valor",
+    "Object_ColorRules_DisplayName": "Reglas de color",
+    "Object_ColorRules_RulesJson_DisplayName": "Reglas (interno)",
+    "Object_ColorRules_RulesJson_Description": "JSON persistido de reglas. Edit\u00e1 en el editor de reglas del visual.",
 
     "Object_Routes_DisplayName": "Rutas",
     "Object_Routes_ShowRoutes_DisplayName": "Mostrar rutas",
@@ -21,10 +19,10 @@
     "Object_Routes_RouteOpacity_DisplayName": "Opacidad de ruta",
     "Object_Routes_ShowArrows_DisplayName": "Mostrar flechas",
 
-    "Role_Invernadero_DisplayName": "ID del objeto",
-    "Role_Etiqueta_DisplayName": "Etiqueta",
-    "Role_ValorPrincipal_DisplayName": "Valor principal",
-    "Role_CampoTexto1_DisplayName": "Campo de texto 1",
+    "Role_ObjectId_DisplayName": "ID del objeto",
+    "Role_Label_DisplayName": "Etiqueta",
+    "Role_MainValue_DisplayName": "Valor principal",
+    "Role_TextField1_DisplayName": "Campo de texto 1",
     "Role_TooltipFields_DisplayName": "Campos de tooltip",
     "Role_LayoutX_DisplayName": "Layout X",
     "Role_LayoutY_DisplayName": "Layout Y",
@@ -33,7 +31,7 @@
     "Role_CanvasW_DisplayName": "Ancho de Canvas",
     "Role_CanvasH_DisplayName": "Alto de Canvas",
     "Role_ImageUrl_DisplayName": "URL de imagen de fondo",
-    "Role_PolygonPoints_DisplayName": "Puntos del polígono",
+    "Role_PolygonPoints_DisplayName": "Puntos del pol\u00edgono",
     "Role_CentroidX_DisplayName": "Centroide X",
     "Role_CentroidY_DisplayName": "Centroide Y",
     "Role_RouteOrder_DisplayName": "Orden de ruta",
@@ -42,6 +40,6 @@
     "Role_RouteWeight_DisplayName": "Peso de ruta",
 
     "LandingPage_Title": "Synoptic Studio",
-    "LandingPage_Subtitle": "Arrastrá tus campos de datos para empezar.",
-    "LandingPage_RequiredFields": "Obligatorio: ID del objeto. Opcional pero recomendado: Layout X/Y/W/H, Ancho/Alto de Canvas, Puntos del polígono, Centroide X/Y."
+    "LandingPage_Subtitle": "Arrastr\u00e1 tus campos de datos para empezar.",
+    "LandingPage_RequiredFields": "Obligatorio: ID del objeto. Opcional pero recomendado: Layout X/Y/W/H, Ancho/Alto de Canvas, Puntos del pol\u00edgono, Centroide X/Y."
 }

@@ -11,32 +11,32 @@ import FormattingSettingsModel = formattingSettings.Model;
 // Users never edit this field directly; the in-visual rules editor reads, writes
 // and persists it via host.persistProperties.
 // ─────────────────────────────────────────────────────────────────────────────
-class ReglaColorCard extends FormattingSettingsCard {
-    reglasJson = new formattingSettings.TextInput({
-        name: "reglasJson",
+class ColorRulesCard extends FormattingSettingsCard {
+    rulesJson = new formattingSettings.TextInput({
+        name: "rulesJson",
         displayName: "Rules (JSON)",
         description: "Internal: color-rule definitions. Edit via the built-in Rules editor (gear icon).",
         value: "",
         placeholder: "",
     });
 
-    name:        string = "reglas";
+    name:        string = "colorRules";
     displayName: string = "Color Rules";
-    slices: Array<FormattingSettingsSlice> = [this.reglasJson];
+    slices: Array<FormattingSettingsSlice> = [this.rulesJson];
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // General card — visibility toggles and the fallback color (used when no rule matches)
 // ─────────────────────────────────────────────────────────────────────────────
 class GeneralCard extends FormattingSettingsCard {
-    mostrarEtiqueta = new formattingSettings.ToggleSwitch({
-        name: "mostrarEtiqueta",
+    showLabel = new formattingSettings.ToggleSwitch({
+        name: "showLabel",
         displayName: "Show label",
         value: true,
     });
 
-    mostrarValor = new formattingSettings.ToggleSwitch({
-        name: "mostrarValor",
+    showValue = new formattingSettings.ToggleSwitch({
+        name: "showValue",
         displayName: "Show main value",
         value: true,
     });
@@ -72,8 +72,8 @@ class GeneralCard extends FormattingSettingsCard {
     name:        string = "general";
     displayName: string = "General";
     slices: Array<FormattingSettingsSlice> = [
-        this.mostrarEtiqueta,
-        this.mostrarValor,
+        this.showLabel,
+        this.showValue,
         this.colorFallback,
         this.backgroundOpacity,
         this.rotation,
@@ -129,9 +129,9 @@ class RoutesCard extends FormattingSettingsCard {
 }
 
 export class VisualFormattingSettingsModel extends FormattingSettingsModel {
-    reglaColorCard = new ReglaColorCard();
+    colorRulesCard = new ColorRulesCard();
     generalCard    = new GeneralCard();
     routesCard     = new RoutesCard();
 
-    cards = [this.reglaColorCard, this.generalCard, this.routesCard];
+    cards = [this.colorRulesCard, this.generalCard, this.routesCard];
 }

@@ -36,8 +36,8 @@ interface TooltipField {
 interface SynopticObject {
     id:             string;
     label:          string;
-    valorPrincipal?: number;
-    campoTexto1?:   string;
+    mainValue?:     number;
+    textField1?:    string;
     layoutX?:       number;
     layoutY?:       number;
     layoutW?:       number;
@@ -252,11 +252,11 @@ function btn(color: string, bg = "none"): Partial<CSSStyleDeclaration> {
 
 function defaultRules(): ColorRule[] {
     return [
-        { id: uid(), field: "valorPrincipal", op: "lt",      value: "40",    value2: "",
+        { id: uid(), field: "mainValue", op: "lt",      value: "40",    value2: "",
           color: "#ef4444", label: "Low",    enabled: true },
-        { id: uid(), field: "valorPrincipal", op: "between", value: "40,70", value2: "",
+        { id: uid(), field: "mainValue", op: "between", value: "40,70", value2: "",
           color: "#f59e0b", label: "Medium", enabled: true },
-        { id: uid(), field: "valorPrincipal", op: "gte",     value: "70",    value2: "",
+        { id: uid(), field: "mainValue", op: "gte",     value: "70",    value2: "",
           color: "#00e5a0", label: "High",   enabled: true },
     ];
 }
@@ -291,11 +291,20 @@ function parseBetween(value: string, value2?: string): [number, number] | null {
 }
 
 function evalRule(rule: ColorRule, obj: SynopticObject): boolean {
-    const map: Record<string,string|number|undefined> = {
-        campoTexto1:    obj.campoTexto1,
-        valorPrincipal: obj.valorPrincipal,
+    // Legacy field name migration: persisted rules from versions ≤1.1.x
+    // used Spanish field keys. Honor both old and new names so reports
+    // upgraded from earlier versions keep working without re-creating
+    // the rules.
+    const legacyFieldMap: Record<string, string> = {
+        "valorPrincipal": "mainValue",
+        "campoTexto1":    "textField1",
     };
-    const raw = map[rule.field];
+    const fieldKey = legacyFieldMap[rule.field] || rule.field;
+    const map: Record<string,string|number|undefined> = {
+        textField1: obj.textField1,
+        mainValue:  obj.mainValue,
+    };
+    const raw = map[fieldKey];
     if (raw === undefined || raw === null) return false;
     const isCategoricalOp = rule.op === "eq" || rule.op === "neq";
     if (isCategoricalOp && String(raw).trim() === "") return false;
@@ -458,13 +467,13 @@ function buildTooltip(obj: SynopticObject, color: string, ruleLabel: string,
         td2.textContent = val;
         tr.appendChild(td1); tr.appendChild(td2); tbl.appendChild(tr);
     };
-    if (obj.valorPrincipal !== undefined && obj.valorPrincipal !== null) {
+    if (obj.mainValue !== undefined && obj.mainValue !== null) {
         addRow(cleanFieldName(mainValName) || "Main Value",
-               formatTooltipValue(obj.valorPrincipal),
+               formatTooltipValue(obj.mainValue),
                true);
     }
-    if (obj.campoTexto1) {
-        addRow("Status", formatTooltipValue(obj.campoTexto1), false);
+    if (obj.textField1) {
+        addRow("Status", formatTooltipValue(obj.textField1), false);
     }
     for (const f of obj.tooltipFields) {
         addRow(cleanFieldName(f.name), f.value, f.isNumeric);
@@ -480,8 +489,8 @@ const OPS = [
     {k:"between",l:"between"},
 ];
 const FIELDS = [
-    {k:"campoTexto1",   l:"Text Field 1"},
-    {k:"valorPrincipal",l:"Main Value"},
+    {k:"textField1", l:"Text Field 1"},
+    {k:"mainValue",  l:"Main Value"},
 ];
 
 class RulesEditor {
@@ -546,7 +555,7 @@ class RulesEditor {
         const ab=mk("button",{...btn(CLR.green,CLR.glo),padding:"3px 10px"});
         ab.textContent="+ Add rule";
         ab.addEventListener("click",()=>{
-            this.rules.push({id:uid(),field:"campoTexto1",op:"eq",
+            this.rules.push({id:uid(),field:"textField1",op:"eq",
                               value:"",value2:"",color:"#00e5a0",
                               label:"New rule",enabled:true});
             this.renderList();
@@ -911,12 +920,12 @@ export class Visual implements IVisual {
         this.editor=new RulesEditor(this.target,(rules)=>{
             this.rules=rules;
             const json = JSON.stringify(rules);
-            this.fmtSettings.reglaColorCard.reglasJson.value = json;
+            this.fmtSettings.colorRulesCard.rulesJson.value = json;
             this.host.persistProperties({
                 merge: [{
-                    objectName: "reglas",
+                    objectName: "colorRules",
                     selector: null as unknown as powerbi.data.Selector,
-                    properties: { reglasJson: json },
+                    properties: { rulesJson: json },
                 }],
             });
             this.draw(); this.drawLegend();
@@ -1239,14 +1248,14 @@ export class Visual implements IVisual {
         // keeps the landing div stable during drag.
 
         // Parse persisted rules
-        const persistedRaw = this.fmtSettings.reglaColorCard.reglasJson.value;
+        const persistedRaw = this.fmtSettings.colorRulesCard.rulesJson.value;
         const neverConfigured = persistedRaw === undefined
                              || persistedRaw === null
                              || String(persistedRaw).trim() === "";
         if (neverConfigured) {
             this.rules = defaultRules();
             const seedJson = JSON.stringify(this.rules);
-            this.fmtSettings.reglaColorCard.reglasJson.value = seedJson;
+            this.fmtSettings.colorRulesCard.rulesJson.value = seedJson;
             // GUARD: persist only once per session. Re-firing on every
             // update produces the feedback loop responsible for the
             // landing flicker.
@@ -1254,9 +1263,9 @@ export class Visual implements IVisual {
                 this.rulesPersistedThisSession = true;
                 this.host.persistProperties({
                     merge: [{
-                        objectName: "reglas",
+                        objectName: "colorRules",
                         selector: null as unknown as powerbi.data.Selector,
-                        properties: { reglasJson: seedJson },
+                        properties: { rulesJson: seedJson },
                     }],
                 });
             }
@@ -1279,8 +1288,8 @@ export class Visual implements IVisual {
         }
 
         this.fallback  =this.fmtSettings.generalCard.colorFallback.value.value||"#4a5560";
-        this.showLabel =this.fmtSettings.generalCard.mostrarEtiqueta.value;
-        this.showValue =this.fmtSettings.generalCard.mostrarValor.value;
+        this.showLabel =this.fmtSettings.generalCard.showLabel.value;
+        this.showValue =this.fmtSettings.generalCard.showValue.value;
         const rawBgOp = this.fmtSettings.generalCard.backgroundOpacity.value;
         this.bgOpacity = (typeof rawBgOp === "number" && !isNaN(rawBgOp))
             ? Math.max(0, Math.min(1, rawBgOp / 100))
@@ -1323,8 +1332,8 @@ export class Visual implements IVisual {
             }
         });
 
-        this.mainValueName = colByRole["valorPrincipal"] !== undefined
-            ? cols[colByRole["valorPrincipal"]].displayName
+        this.mainValueName = colByRole["mainValue"] !== undefined
+            ? cols[colByRole["mainValue"]].displayName
             : "";
 
         const orderOf = (src: powerbi.DataViewMetadataColumn, fallback: number): number => {
@@ -1367,7 +1376,7 @@ export class Visual implements IVisual {
         this.objects = [];
 
         for (let i = 0; i < rows.length; i++) {
-            const id = strAt("invernadero", i) || String(i);
+            const id = strAt("objectId", i) || String(i);
 
             const merged: TooltipField[] = [];
             tooltipColIdxs.forEach(idx => {
@@ -1402,9 +1411,9 @@ export class Visual implements IVisual {
 
             this.objects.push({
                 id,
-                label:          strAt("etiqueta", i) || id,
-                valorPrincipal: numAt("valorPrincipal", i),
-                campoTexto1:    strAt("campoTexto1", i),
+                label:          strAt("label", i) || id,
+                mainValue:     numAt("mainValue", i),
+                textField1:     strAt("textField1", i),
                 layoutX:        layoutAt("layoutX", i),
                 layoutY:        layoutAt("layoutY", i),
                 layoutW:        layoutAt("layoutW", i),
@@ -1660,7 +1669,7 @@ export class Visual implements IVisual {
                 g.setAttribute("data-poly", polyStr);
             }
             if(!dimmed){
-                const v = obj.valorPrincipal;
+                const v = obj.mainValue;
                 const hasMainVal = v !== undefined && v !== null && !isNaN(v as number);
                 g.setAttribute("data-lbl", obj.label);
                 g.setAttribute("data-val", hasMainVal
@@ -1668,7 +1677,7 @@ export class Visual implements IVisual {
                 g.setAttribute("data-pct", hasMainVal
                     ? String(Math.min(Math.max(v as number, 0), 100) / 100)
                     : "1");
-                g.setAttribute("data-txt1", obj.campoTexto1 ? String(obj.campoTexto1) : "");
+                g.setAttribute("data-txt1", obj.textField1 ? String(obj.textField1) : "");
                 // anchorX/Y is the LABEL anchor (centroid for polygons,
                 // bbox center for rectangles). Used for label placement.
                 const anchorX = (typeof cell.centroidX === "number") ? cell.centroidX : cell.x + cell.w / 2;

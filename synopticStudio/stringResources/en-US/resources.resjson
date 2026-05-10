@@ -3,16 +3,14 @@
     "Visual_Description": "A flexible synoptic map visual: render any layout (greenhouses, factories, building floors, etc.) with rules-based coloring, polygon support, routes, and rich tooltips.",
 
     "Object_General_DisplayName": "General",
+    "Object_General_ShowLabel_DisplayName": "Show label",
+    "Object_General_ShowValue_DisplayName": "Show value",
     "Object_General_Rotation_DisplayName": "Rotation",
     "Object_General_Rotation_Description": "Initial rotation of the layout in degrees (0, 90, 180, 270).",
 
-    "Object_Reglas_DisplayName": "Color Rules",
-    "Object_Reglas_ReglasJson_DisplayName": "Rules (internal)",
-    "Object_Reglas_ReglasJson_Description": "Persisted rules JSON. Edit via the Rules editor in the visual.",
-
-    "Object_Etiquetas_DisplayName": "Labels",
-    "Object_Etiquetas_ShowLabel_DisplayName": "Show label",
-    "Object_Etiquetas_ShowValue_DisplayName": "Show value",
+    "Object_ColorRules_DisplayName": "Color Rules",
+    "Object_ColorRules_RulesJson_DisplayName": "Rules (internal)",
+    "Object_ColorRules_RulesJson_Description": "Persisted rules JSON. Edit via the Rules editor in the visual.",
 
     "Object_Routes_DisplayName": "Routes",
     "Object_Routes_ShowRoutes_DisplayName": "Show routes",
@@ -21,10 +19,10 @@
     "Object_Routes_RouteOpacity_DisplayName": "Route opacity",
     "Object_Routes_ShowArrows_DisplayName": "Show arrows",
 
-    "Role_Invernadero_DisplayName": "Object ID",
-    "Role_Etiqueta_DisplayName": "Label",
-    "Role_ValorPrincipal_DisplayName": "Main Value",
-    "Role_CampoTexto1_DisplayName": "Text Field 1",
+    "Role_ObjectId_DisplayName": "Object ID",
+    "Role_Label_DisplayName": "Label",
+    "Role_MainValue_DisplayName": "Main Value",
+    "Role_TextField1_DisplayName": "Text Field 1",
     "Role_TooltipFields_DisplayName": "Tooltip Fields",
     "Role_LayoutX_DisplayName": "Layout X",
     "Role_LayoutY_DisplayName": "Layout Y",
