@@ -367,7 +367,7 @@
     "supportsMultiVisualSelection": true,
     "supportsLandingPage": true,
     "supportsEmptyDataView": true,
-    "supportsKeyboardFocus": false,
+    "supportsKeyboardFocus": true,
     "tooltips": {
         "supportedTypes": {
             "default": true,

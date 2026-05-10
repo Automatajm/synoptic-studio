@@ -826,6 +826,25 @@ export class Visual implements IVisual {
             `position:relative;width:100%;height:100%;overflow:hidden;`+
             `background:${CLR.bg};font-family:'Segoe UI',sans-serif;`;
 
+        // ── Focus styles for keyboard navigation (WCAG 2.1 AA) ──
+        // Inject a stylesheet that gives shape elements (<g>) a visible
+        // focus outline when navigated via Tab. Hidden when interacting
+        // with the mouse (using :focus-visible, which browsers only
+        // match on keyboard focus, not mouse click).
+        if (!document.getElementById("syn-a11y-style")) {
+            const st = document.createElement("style");
+            st.id = "syn-a11y-style";
+            st.textContent = `
+                svg g[role="button"]:focus { outline: none; }
+                svg g[role="button"]:focus-visible {
+                    outline: 2px solid #00e5a0;
+                    outline-offset: 2px;
+                    border-radius: 2px;
+                }
+            `;
+            document.head.appendChild(st);
+        }
+
         // Top bar
         const bar=mk("div",{
             position:"absolute",top:"0",left:"0",right:"0",height:"30px",
@@ -1630,6 +1649,15 @@ export class Visual implements IVisual {
             const dimmed=this.selectedIds.size>0&&!isSel;
             const g=svgEl("g",{});
             g.setAttribute("style","cursor:pointer");
+            // ── ACCESSIBILITY: keyboard navigation + screen readers ──
+            // tabindex="0" makes the shape focusable via Tab key.
+            // role="button" tells assistive tech this is interactive.
+            // aria-label provides the accessible name (object label + rule).
+            // Together these satisfy WCAG 2.1 AA and AppSource Tier 3.
+            g.setAttribute("tabindex", "0");
+            g.setAttribute("role", "button");
+            const ariaLabel = obj.label + (rl ? (" — " + rl) : "");
+            g.setAttribute("aria-label", ariaLabel);
 
             const baseStrokeW = isSel ? (1.5 / this.zoomLevel) : (0.6 / this.zoomLevel);
             const baseStroke  = isSel ? CLR.green : dimmed ? CLR.border : color + "66";
@@ -1782,6 +1810,80 @@ export class Visual implements IVisual {
                         obj.selectionId,
                         { x: e.clientX, y: e.clientY },
                     );
+                }
+            });
+            // ── KEYBOARD NAVIGATION (WCAG 2.1 AA / AppSource Tier 3) ──
+            // When the shape receives focus via Tab: highlight it (same
+            // visual feedback as hover) and show the tooltip near the
+            // shape so keyboard users get the same information as mouse
+            // users.
+            g.addEventListener("focus", () => {
+                hr.setAttribute("opacity", "0.9");
+                hr.setAttribute("stroke", CLR.green);
+                // Show tooltip anchored to the cell's screen position.
+                clearNode(this.tooltipDiv);
+                this.tooltipDiv.appendChild(buildTooltip(obj, color, rl, this.mainValueName));
+                this.tooltipDiv.style.display = "block";
+                // Position the tooltip relative to the focused shape.
+                // We use the SVG element's bounding rect as the anchor.
+                try {
+                    const rect = (g as unknown as SVGGraphicsElement).getBoundingClientRect();
+                    const wr = this.wrapper.getBoundingClientRect();
+                    const fakeEvt = {
+                        clientX: rect.left + rect.width / 2 - wr.left + wr.left,
+                        clientY: rect.top  + rect.height / 2 - wr.top  + wr.top,
+                    } as MouseEvent;
+                    this.positionTip(fakeEvt);
+                } catch (_e) { /* fall through */ }
+            });
+            g.addEventListener("blur", () => {
+                hr.setAttribute("opacity", "0");
+                this.tooltipDiv.style.display = "none";
+            });
+            g.addEventListener("keydown", (e: KeyboardEvent) => {
+                // Enter or Space activates selection (same as click).
+                if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    this.tooltipDiv.style.display = "none";
+                    this.editor.hide();
+                    const multi = e.ctrlKey || e.metaKey;
+                    if (multi) {
+                        if (this.selectedIds.has(obj.id)) {
+                            this.selectedIds.delete(obj.id);
+                        } else {
+                            this.selectedIds.add(obj.id);
+                        }
+                        if (this.allowInteractions) {
+                            this.selMgr.select(obj.selectionId, true);
+                        }
+                    } else {
+                        if (this.selectedIds.size === 1 && this.selectedIds.has(obj.id)) {
+                            this.selectedIds.clear();
+                            if (this.allowInteractions) this.selMgr.clear();
+                        } else {
+                            this.selectedIds.clear();
+                            this.selectedIds.add(obj.id);
+                            if (this.allowInteractions) {
+                                this.selMgr.select(obj.selectionId, false);
+                            }
+                        }
+                    }
+                    this.draw();
+                    return;
+                }
+                // Escape clears selection.
+                if (e.key === "Escape") {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    if (this.selectedIds.size > 0) {
+                        this.selectedIds.clear();
+                        if (this.allowInteractions) this.selMgr.clear();
+                        this.draw();
+                    }
+                    this.tooltipDiv.style.display = "none";
+                    (g as unknown as HTMLElement).blur();
+                    return;
                 }
             });
             tg.appendChild(g);
