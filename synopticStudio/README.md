@@ -363,7 +363,7 @@ MIT License — see [LICENSE](./LICENSE) for details.
 
 ## Author
 
-**Automatajm**
+**Juan Mendoza** (Automatajm)
 Financial Planning & Analytics | Enterprise Software Development
 Dominican Republic
 [github.com/Automatajm](https://github.com/Automatajm)
