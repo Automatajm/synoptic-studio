@@ -1,7 +1,7 @@
 # Privacy Policy — Synoptic Studio
 
-**Last updated:** April 23, 2025  
-**Publisher:** Automatajm
+**Last updated:** May 10, 2026
+**Publisher:** Juan Mendoza (Automatajm)
 
 ---
 
@@ -23,6 +23,12 @@ Synoptic Studio does **not** use browser localStorage, sessionStorage, cookies, 
 
 Data bound to the visual (object IDs, field values, coordinates) is used exclusively to render the visual within Power BI. It is never transmitted externally.
 
+## Persistence
+
+User-defined color rules and the last selected rotation are persisted via Power BI's official `host.persistProperties` API, which stores the values within the `.pbix` file as part of the report's own state. This persistence is internal to Power BI; no external services are involved.
+
 ## Contact
 
 For privacy questions: [github.com/Automatajm/synoptic-studio/issues](https://github.com/Automatajm/synoptic-studio/issues)
+
+For non-public concerns: [synopticstudio@hotmail.com](mailto:synopticstudio@hotmail.com)

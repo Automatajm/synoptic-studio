@@ -7,6 +7,35 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [1.2.0] — 2026-05-10
+
+### Added
+- **Polygon support** — irregular shapes (L, U, donut, custom silhouettes) via the `Polygon Points` data role. Vertex list in 0–100 relative coordinates, format `"x,y;x,y;..."`. Backward-compatible: rectangles still work without the field.
+- **Centroid override** — `Centroid X / Y` data roles let the editor specify where the label and route anchor live, critical for irregular polygons whose bbox center falls outside the silhouette.
+- **Routes overlay** — draw connections between objects via two modes: linear (`Route Order`) for sequential paths, and graph (`Route From` / `Route To`) for arbitrary networks. Optional `Route Weight` controls line thickness proportionally.
+- **Background image overlay** — `Background Image URL` data role renders an image (blueprint, floor plan, photo) behind the shapes with adjustable opacity.
+- **Polygon-aware label sizing** — `inscribedSpaceAt()` measures the polygon's available width/height at the label anchor and fits text accordingly, so labels never overflow into transparent regions of irregular shapes.
+- **Gravity-aware fills clipped to polygons** — fill renders bottom-up using the polygon's own vertices clipped by height, producing pixel-perfect diagonal edges with no anti-aliasing gaps.
+- **Microsoft official landing page pattern** — implements `supportsLandingPage` + `supportsEmptyDataView` with the canonical `isLandingPageOn` / `isLandingPageRemoved` guards. Landing is created exactly once and removed exactly once across the visual's lifetime.
+- **Localization support** — strings consumed via `host.createLocalizationManager()`. `stringResources/en-US/resources.resjson` and `stringResources/es-ES/resources.resjson` ship with the visual.
+- **AppSource Tier 1 + Tier 2 compliance** — 9 of 10 lint warnings cleared. Only Keyboard Navigation (Tier 3, optional) remains.
+
+### Fixed
+- **Landing page resize flicker** — root cause was a `persistProperties` feedback loop in `updateInternal()`. When no rules were configured yet, every update fired `persistProperties({reglasJson: defaults})`. PBI processed each persist as a user-level change adding to the undo stack and dispatching another update — which arrived during the same drag frame, causing the visible flicker. Fix: a session-scoped guard (`rulesPersistedThisSession`) ensures the seed persist fires exactly once per visual lifetime, breaking the loop. (Diagnosis credit: user observation that Ctrl+Z eliminated the flicker, which confirmed the undo-stack origin.)
+- **Polygon fill sub-pixel gaps** — earlier approach rendered an axis-aligned rectangle clipped by the polygon silhouette, which produced sub-pixel anti-aliasing gaps on diagonal edges. New approach renders the fill as a polygon with the same vertices as the shape, clipped by height — anti-aliasing now matches the stroke pixel-perfectly.
+- **Polygon fill alignment when centroid offsets bbox** — fill rectangles now anchor to the bbox geometric center (`data-bx`/`data-by`) separately from the label centroid (`data-cx`/`data-cy`). Eliminates white edges visible on polygons whose centroid was deliberately offset from the bbox.
+- **Resize handling robustness** — viewport now read from `target.clientHeight` (always synced with PBI) instead of `options.viewport` (which can be stale during drag). `ResizeObserver` uses `cancelAnimationFrame` to always process the latest size in a burst rather than the first.
+- **Background image aspect ratio** — image now uses `preserveAspectRatio="xMidYMid meet"` so floor plans don't stretch when the visual is resized to non-matching ratios.
+
+### Changed
+- **`pbiviz.json`** — author email updated to dedicated project address (`synopticstudio@hotmail.com`); `gitHubUrl` and `supportUrl` now point to the actual repository.
+- **`capabilities.json`** — `supportsEmptyDataView: true` added (required by the official Microsoft landing page pattern, complements `supportsLandingPage`).
+
+### Architecture note
+The `lab` synthetic test environment was used to isolate the resize flicker problem. The lab — a minimal visual with the landing alone, no shapes, no `persistProperties` — never showed the flicker, while the real visual did. That contrast was the key signal that the cause was behavioral (a feedback loop) rather than visual (DOM/CSS). Future bug investigations involving timing or update dispatch should consider this same isolation approach.
+
+---
+
 ## [1.1.0] — 2026-04-25
 
 ### Added
@@ -79,6 +108,7 @@ These design decisions are stable across versions and worth keeping in mind for 
 - **DOM-safe construction** — no `innerHTML` anywhere; every element is built with `createElement` and `setAttribute`. Passes Power BI's lint rules out of the box and is safe for AppSource certification.
 - **Transform group pattern** — pan/zoom/rotate are applied to a single `<g>` element, separate from the upright fill and label layers. Lets the visual survive Power BI redraws without losing interaction state.
 - **Persistent state via `host.persistProperties`** — both color rules and rotation use the official Power BI persistence API. State is part of the `.pbix` file; survives close/reopen, publishing to Service, and download from Service back to Desktop.
+- **Session-scoped persist guards** — to prevent feedback loops, calls that seed default values into `persistProperties` are gated by per-session boolean flags that ensure the seed runs exactly once per visual lifetime.
 - **WCAG-based contrast picking** — text colors against rule-colored fills are chosen via relative luminance computation, considering alpha-blended fill perception. Ensures legibility in every theme and color combination.
 - **Theme detection from PBI host** — adapts to the active report theme via `host.colorPalette.background` rather than OS-level `prefers-color-scheme`. Respects the report author's chosen theme.
 - **TypeScript strict mode compatible** — full type coverage; no `any` escapes in production paths.
