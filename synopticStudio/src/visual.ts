@@ -738,6 +738,17 @@ export class Visual implements IVisual {
     private zoomLevel= 1.0;
     private rotation = 0;
     private rotationLoaded = false;
+
+    // Guard: persistProperties for default rules must fire ONCE per visual
+    // session. Without this guard, every updateInternal() call sees
+    // neverConfigured=true (because the dataView hasn't propagated the
+    // persist yet) and re-fires persistProperties. PBI processes each
+    // persist as a user-level change, adding to the undo stack AND
+    // dispatching another update — which arrives during the same drag
+    // frame, causing the landing flicker. Confirmed by the user's
+    // observation that Ctrl+Z (which pops one persist atomically) makes
+    // the flicker disappear.
+    private rulesPersistedThisSession: boolean = false;
     private isPanning= false;
     private panStartX= 0;
     private panStartY= 0;
@@ -1236,13 +1247,19 @@ export class Visual implements IVisual {
             this.rules = defaultRules();
             const seedJson = JSON.stringify(this.rules);
             this.fmtSettings.reglaColorCard.reglasJson.value = seedJson;
-            this.host.persistProperties({
-                merge: [{
-                    objectName: "reglas",
-                    selector: null as unknown as powerbi.data.Selector,
-                    properties: { reglasJson: seedJson },
-                }],
-            });
+            // GUARD: persist only once per session. Re-firing on every
+            // update produces the feedback loop responsible for the
+            // landing flicker.
+            if (!this.rulesPersistedThisSession) {
+                this.rulesPersistedThisSession = true;
+                this.host.persistProperties({
+                    merge: [{
+                        objectName: "reglas",
+                        selector: null as unknown as powerbi.data.Selector,
+                        properties: { reglasJson: seedJson },
+                    }],
+                });
+            }
         } else {
             try { this.rules = JSON.parse(String(persistedRaw) || "[]"); }
             catch { this.rules = []; }
