@@ -4,8 +4,8 @@
         "displayName": "Synoptic Studio",
         "guid": "synopticStudioAAC862159B8F45BBBBD536EE50031F3E",
         "visualClassName": "Visual",
-        "version": "1.0.0.0",
-        "description": "A flexible synoptic map visual: render any layout (greenhouses, factories, building floors, etc.) with rules-based coloring, polygon support, routes, and rich tooltips.",
+        "version": "1.3.0.0",
+        "description": "A configurable synoptic map visual for Power BI. Place objects on a canvas, define color rules, connect with routes, and get instant cross-filtering. WCAG 2.1 AA. EN/ES localized.",
         "supportUrl": "https://github.com/Automatajm/synoptic-studio/issues",
         "gitHubUrl": "https://github.com/Automatajm/synoptic-studio"
     },
